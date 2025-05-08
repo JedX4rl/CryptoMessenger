@@ -33,41 +33,41 @@ func (c *ChatClient) Close() error {
 }
 
 // RegisterUser вызывает RPC RegisterUser
-func (c *ChatClient) RegisterUser(username, password string) (string, error) {
+func (c *ChatClient) RegisterUser(username, password string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
 	resp, err := c.client.Register(ctx, &pb.RegisterRequest{Username: username, Password: password})
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	c.authToken = resp.Token
 
-	return resp.ClientId, nil
+	return nil
 }
 
 // LoginUser аналогично
-func (c *ChatClient) LoginUser(username, password string) (string, error) {
+func (c *ChatClient) LoginUser(username, password string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
 
 	resp, err := c.client.Login(ctx, &pb.LoginRequest{Username: username, Password: password})
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	c.authToken = resp.Token
 
-	return resp.ClientId, nil
+	return nil
 }
 
 func (c *ChatClient) CreateChat(username, algo, mode, padding, chatName string) error {
 	ctx, cancel := context.WithTimeout(c.AuthenticatedContext(), time.Second*5)
 	defer cancel()
 
-	roomId, err := c.client.CreateRoom(ctx, &pb.CreateRoomRequest{Algorithm: algo, Mode: mode, Padding: padding, Name: chatName})
+	roomId, err := c.client.CreateRoom(ctx, &pb.CreateRoomRequest{Algorithm: algo, Mode: mode, Padding: padding, RoomName: chatName})
 	if err != nil {
 		return err
 	}
@@ -75,15 +75,12 @@ func (c *ChatClient) CreateChat(username, algo, mode, padding, chatName string) 
 
 	c.privateKeys.Store(roomId, a+"123")
 
-	id := "tempID"
-
-	_, err = c.client.InviteUser(ctx, &pb.InviteRequest{
-		ClientId:   id,
-		ToClientId: username,
-		RoomId:     roomId.RoomId,
-		Prime:      p,
-		G:          g,
-		PublicKey:  A,
+	_, err = c.client.InviteUser(ctx, &pb.Invitation{
+		ReceiverName: username,
+		RoomId:       roomId.RoomId,
+		Prime:        p,
+		G:            g,
+		PublicKey:    A,
 	})
 
 	return err

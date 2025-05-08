@@ -66,7 +66,7 @@ func (a *AuthWindow) Show() {
 		progressDialog.Show()
 
 		go func() {
-			userID, err := a.chatClient.RegisterUser(entryName.Text, entryPassword.Text)
+			err := a.chatClient.RegisterUser(entryName.Text, entryPassword.Text)
 
 			progressDialog.Hide()
 
@@ -77,10 +77,9 @@ func (a *AuthWindow) Show() {
 
 			dialog.ShowInformation(
 				"Registration Successful",
-				fmt.Sprintf("Your secure ID:\n%s\n\nPlease save it for future logins!", userID),
+				fmt.Sprintf("Your're in!"),
 				a.window,
 			)
-			a.onSuccess(userID)
 		}()
 	})
 
@@ -94,7 +93,7 @@ func (a *AuthWindow) Show() {
 		progressDialog.Show()
 
 		go func() {
-			_, err := a.chatClient.LoginUser(entryName.Text, entryPassword.Text)
+			err := a.chatClient.LoginUser(entryName.Text, entryPassword.Text)
 
 			progressDialog.Hide()
 

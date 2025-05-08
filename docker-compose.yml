@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  nats:
+    image: nats:2.10.9-alpine
+    container_name: nats-server
+    command: "-js"  # Включаем JetStream
+    restart: unless-stopped
+    ports:
+      - "4222:4222"  # Клиентские подключения
+      - "8222:8222"  # Мониторинг (http://localhost:8222)
+    volumes:
+      - nats-data:/data  # Персистентное хранилище для JetStream
+    networks:
+      - nats-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  nats-data:
+
+networks:
+  nats-net:
+    driver: bridge

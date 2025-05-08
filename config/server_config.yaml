@@ -1,0 +1,9 @@
+grpc_server:
+  address: "0.0.0.0:50051"
+  type: "tcp"
+  timeout: 10s
+  max_conn_age: 30m
+
+kafka:
+  broker: "localhost:9092"
+  invitation_topic: "chat-invitations"

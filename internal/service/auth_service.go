@@ -3,6 +3,7 @@ package service
 import (
 	"CryptoMessenger/internal/domain"
 	myErrors "CryptoMessenger/internal/errors"
+	natsjs "CryptoMessenger/internal/infrastructure/nats"
 	"CryptoMessenger/internal/repository"
 	"context"
 	"database/sql"
@@ -13,11 +14,15 @@ import (
 )
 
 type AuthService struct {
-	users repository.UserRepo
+	users    repository.UserRepo
+	jsClient *natsjs.JSClient
 }
 
-func NewAuthService(userRepo repository.UserRepo) *AuthService {
-	return &AuthService{users: userRepo}
+func NewAuthService(userRepo repository.UserRepo, jsClient *natsjs.JSClient) *AuthService {
+	return &AuthService{
+		users:    userRepo,
+		jsClient: jsClient,
+	}
 }
 
 func (s *AuthService) Register(ctx context.Context, username, password string) (string, error) {
@@ -42,6 +47,14 @@ func (s *AuthService) Register(ctx context.Context, username, password string) (
 
 	if err = s.users.Create(ctx, user); err != nil {
 		return "", fmt.Errorf("error creating user: %w", err)
+	}
+
+	if err = s.jsClient.EnsureInvitesConsumer(uid); err != nil {
+		return "", fmt.Errorf("failed to init invites consumer: %w", err)
+	}
+
+	if err = s.jsClient.EnsureInviteReactionsConsumer(uid); err != nil {
+		return "", fmt.Errorf("failed to init invite reactions consumer: %w", err)
 	}
 
 	return uid, nil

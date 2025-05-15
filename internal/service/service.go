@@ -23,7 +23,7 @@ type Chat interface {
 	ReceiveMessages(ctx context.Context, roomID, clientID string) (<-chan domain.EncryptedMessage, error)
 	GetRoomConfig(ctx context.Context, roomID string) (domain.RoomConfig, error)
 	SendInvitation(ctx context.Context, invite domain.ChatInvitation) error
-	InviteUser(ctx context.Context, from, to, roomID, prime, g, publicKey string) (string, error)
+	InviteUser(ctx context.Context, invitation domain.ChatInvitation) (string, error)
 	ReceiveInvitation(ctx context.Context, userID string) (domain.ChatInvitation, error)
 	ReceiveInvitationReaction(ctx context.Context, userID string) (domain.InvitationReaction, error)
 	ReactToInvitation(ctx context.Context, reaction domain.InvitationReaction) error
@@ -35,9 +35,9 @@ type Service struct {
 	Chat
 }
 
-func NewService(repositories *repository.Repository, broker *natsjs.JSClient) *Service {
+func NewService(repositories *repository.Repository, jsClient *natsjs.JSClient) *Service {
 	return &Service{
-		Auth: NewAuthService(repositories.UserRepo),
-		Chat: NewChatService(repositories.RoomRepo, repositories.KeyRepo, repositories.UserRepo, broker),
+		Auth: NewAuthService(repositories.UserRepo, jsClient),
+		Chat: NewChatService(repositories.RoomRepo, repositories.KeyRepo, repositories.UserRepo, jsClient),
 	}
 }

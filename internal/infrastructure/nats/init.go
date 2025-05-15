@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -50,7 +51,7 @@ func NewJSClient(url string) *JSClient {
 	_, err = js.AddStream(&nats.StreamConfig{
 		Name:      StreamName,
 		Subjects:  []string{"chat.>"},
-		Retention: nats.WorkQueuePolicy, //TODO think
+		Retention: nats.WorkQueuePolicy,
 		MaxAge:    24 * time.Hour,
 	})
 	if err != nil && !errors.Is(err, nats.ErrStreamNameAlreadyInUse) {
@@ -121,7 +122,7 @@ func (c *JSClient) EnsureMessagesConsumer(userID string) error {
 	return nil
 }
 
-func (c *JSClient) PublishInvitation(ctx context.Context, message *InvitationMessage) error {
+func (c *JSClient) PublishInvitation(ctx context.Context, message domain.ChatInvitation) error {
 	var err error
 	subject := fmt.Sprintf(InvitesSubjectPrefix, message.ReceiverID)
 
@@ -139,7 +140,7 @@ func (c *JSClient) PublishInvitation(ctx context.Context, message *InvitationMes
 	return nil
 }
 
-func (c *JSClient) PublishInvitationReaction(ctx context.Context, message *InvitationMessage) error {
+func (c *JSClient) PublishInvitationReaction(ctx context.Context, message domain.InvitationReaction) error {
 	var err error
 	subject := fmt.Sprintf(InvitesReactionSubjectPrefix, message.ReceiverID)
 
@@ -176,7 +177,7 @@ func (c *JSClient) PublishMessage(msg *InvitationMessage) error {
 func (c *JSClient) AckEvent(messageID string) error {
 	val, ok := c.pendingEvents.LoadAndDelete(messageID)
 	if !ok {
-		return fmt.Errorf("message not found")
+		return nil
 	}
 	msg, ok := val.(*nats.Msg)
 	if !ok {
@@ -194,13 +195,15 @@ func (c *JSClient) FetchOneInvitation(ctx context.Context, userID string) (domai
 		return domain.ChatInvitation{}, fmt.Errorf("pull subscribe: %w", err)
 	}
 
-	msgs, err := sub.Fetch(1, nats.Context(ctx))
-	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
+	msgs, err := sub.Fetch(1, nats.MaxWait(1*time.Second))
+
+	if err != nil && !errors.Is(err, ctx.Err()) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, nats.ErrTimeout) {
+		slog.Error("failed to fetch invitation: %w", err)
 		return domain.ChatInvitation{}, fmt.Errorf("fetch: %w", err)
 	}
 
 	if len(msgs) == 0 {
-		return domain.ChatInvitation{}, nil
+		return domain.ChatInvitation{}, nats.ErrMsgNotFound
 	}
 
 	msg := msgs[0]
@@ -223,13 +226,14 @@ func (c *JSClient) FetchOneInvitationReaction(ctx context.Context, userID string
 		return domain.InvitationReaction{}, fmt.Errorf("pull subscribe: %w", err)
 	}
 
-	msgs, err := sub.Fetch(1, nats.Context(ctx))
-	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
+	msgs, err := sub.Fetch(1, nats.MaxWait(1*time.Second))
+	if err != nil && !errors.Is(err, ctx.Err()) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, nats.ErrTimeout) {
+		slog.Error("failed to fetch invitation reactions: %w", err)
 		return domain.InvitationReaction{}, fmt.Errorf("fetch: %w", err)
 	}
 
 	if len(msgs) == 0 {
-		return domain.InvitationReaction{}, nil
+		return domain.InvitationReaction{}, nats.ErrMsgNotFound
 	}
 
 	msg := msgs[0]

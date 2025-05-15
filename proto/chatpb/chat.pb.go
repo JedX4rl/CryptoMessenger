@@ -77,6 +77,7 @@ func (x *RegisterRequest) GetPassword() string {
 type RegisterResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	UserID        string                 `protobuf:"bytes,2,opt,name=userID,proto3" json:"userID,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -114,6 +115,13 @@ func (*RegisterResponse) Descriptor() ([]byte, []int) {
 func (x *RegisterResponse) GetToken() string {
 	if x != nil {
 		return x.Token
+	}
+	return ""
+}
+
+func (x *RegisterResponse) GetUserID() string {
+	if x != nil {
+		return x.UserID
 	}
 	return ""
 }
@@ -173,6 +181,7 @@ func (x *LoginRequest) GetPassword() string {
 type LoginResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Token         string                 `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
+	UserID        string                 `protobuf:"bytes,2,opt,name=userID,proto3" json:"userID,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -210,6 +219,13 @@ func (*LoginResponse) Descriptor() ([]byte, []int) {
 func (x *LoginResponse) GetToken() string {
 	if x != nil {
 		return x.Token
+	}
+	return ""
+}
+
+func (x *LoginResponse) GetUserID() string {
+	if x != nil {
+		return x.UserID
 	}
 	return ""
 }
@@ -694,7 +710,13 @@ type Invitation struct {
 	Prime         string                 `protobuf:"bytes,4,opt,name=prime,proto3" json:"prime,omitempty"`                          // p в hex
 	G             string                 `protobuf:"bytes,5,opt,name=g,proto3" json:"g,omitempty"`                                  // g как строка (int -> string)
 	PublicKey     string                 `protobuf:"bytes,6,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"` // A = g^a mod p в hex
-	MessageId     string                 `protobuf:"bytes,7,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	RoomName      string                 `protobuf:"bytes,7,opt,name=room_name,json=roomName,proto3" json:"room_name,omitempty"`
+	Algorithm     string                 `protobuf:"bytes,8,opt,name=algorithm,proto3" json:"algorithm,omitempty"`
+	Mode          string                 `protobuf:"bytes,9,opt,name=mode,proto3" json:"mode,omitempty"`
+	Padding       string                 `protobuf:"bytes,10,opt,name=padding,proto3" json:"padding,omitempty"`
+	Iv            string                 `protobuf:"bytes,11,opt,name=iv,proto3" json:"iv,omitempty"`
+	RandomDelta   string                 `protobuf:"bytes,12,opt,name=randomDelta,proto3" json:"randomDelta,omitempty"`
+	MessageId     string                 `protobuf:"bytes,13,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -767,6 +789,48 @@ func (x *Invitation) GetG() string {
 func (x *Invitation) GetPublicKey() string {
 	if x != nil {
 		return x.PublicKey
+	}
+	return ""
+}
+
+func (x *Invitation) GetRoomName() string {
+	if x != nil {
+		return x.RoomName
+	}
+	return ""
+}
+
+func (x *Invitation) GetAlgorithm() string {
+	if x != nil {
+		return x.Algorithm
+	}
+	return ""
+}
+
+func (x *Invitation) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *Invitation) GetPadding() string {
+	if x != nil {
+		return x.Padding
+	}
+	return ""
+}
+
+func (x *Invitation) GetIv() string {
+	if x != nil {
+		return x.Iv
+	}
+	return ""
+}
+
+func (x *Invitation) GetRandomDelta() string {
+	if x != nil {
+		return x.RandomDelta
 	}
 	return ""
 }
@@ -914,14 +978,16 @@ const file_chat_proto_rawDesc = "" +
 	"chat.proto\x12\x04chat\x1a\x1bgoogle/protobuf/empty.proto\"I\n" +
 	"\x0fRegisterRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x1a\n" +
-	"\bpassword\x18\x02 \x01(\tR\bpassword\"(\n" +
+	"\bpassword\x18\x02 \x01(\tR\bpassword\"@\n" +
 	"\x10RegisterResponse\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token\"F\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\x12\x16\n" +
+	"\x06userID\x18\x02 \x01(\tR\x06userID\"F\n" +
 	"\fLoginRequest\x12\x1a\n" +
 	"\busername\x18\x01 \x01(\tR\busername\x12\x1a\n" +
-	"\bpassword\x18\x02 \x01(\tR\bpassword\"%\n" +
+	"\bpassword\x18\x02 \x01(\tR\bpassword\"=\n" +
 	"\rLoginResponse\x12\x14\n" +
-	"\x05token\x18\x01 \x01(\tR\x05token\"\xc4\x01\n" +
+	"\x05token\x18\x01 \x01(\tR\x05token\x12\x16\n" +
+	"\x06userID\x18\x02 \x01(\tR\x06userID\"\xc4\x01\n" +
 	"\x11CreateRoomRequest\x12\x1c\n" +
 	"\talgorithm\x18\x01 \x01(\tR\talgorithm\x12\x12\n" +
 	"\x04mode\x18\x02 \x01(\tR\x04mode\x12\x18\n" +
@@ -953,7 +1019,7 @@ const file_chat_proto_rawDesc = "" +
 	"\tfile_name\x18\x04 \x01(\tR\bfileName\x12\x1f\n" +
 	"\vchunk_index\x18\x05 \x01(\x05R\n" +
 	"chunkIndex\x12!\n" +
-	"\ftotal_chunks\x18\x06 \x01(\x05R\vtotalChunks\"\xcd\x01\n" +
+	"\ftotal_chunks\x18\x06 \x01(\x05R\vtotalChunks\"\xe8\x02\n" +
 	"\n" +
 	"Invitation\x12\x1f\n" +
 	"\vsender_name\x18\x01 \x01(\tR\n" +
@@ -963,9 +1029,16 @@ const file_chat_proto_rawDesc = "" +
 	"\x05prime\x18\x04 \x01(\tR\x05prime\x12\f\n" +
 	"\x01g\x18\x05 \x01(\tR\x01g\x12\x1d\n" +
 	"\n" +
-	"public_key\x18\x06 \x01(\tR\tpublicKey\x12\x1d\n" +
+	"public_key\x18\x06 \x01(\tR\tpublicKey\x12\x1b\n" +
+	"\troom_name\x18\a \x01(\tR\broomName\x12\x1c\n" +
+	"\talgorithm\x18\b \x01(\tR\talgorithm\x12\x12\n" +
+	"\x04mode\x18\t \x01(\tR\x04mode\x12\x18\n" +
+	"\apadding\x18\n" +
+	" \x01(\tR\apadding\x12\x0e\n" +
+	"\x02iv\x18\v \x01(\tR\x02iv\x12 \n" +
+	"\vrandomDelta\x18\f \x01(\tR\vrandomDelta\x12\x1d\n" +
 	"\n" +
-	"message_id\x18\a \x01(\tR\tmessageId\"\xcd\x01\n" +
+	"message_id\x18\r \x01(\tR\tmessageId\"\xcd\x01\n" +
 	"\x12InvitationReaction\x12\x1f\n" +
 	"\vsender_name\x18\x01 \x01(\tR\n" +
 	"senderName\x12#\n" +

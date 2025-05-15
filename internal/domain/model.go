@@ -32,20 +32,38 @@ type EncryptedMessage struct {
 }
 
 type ChatInvitation struct {
-	SenderName string `json:"sender_name"`
-	RoomID     string `json:"room_id"`
-	Prime      string `json:"prime"`
-	G          string `json:"g"`
-	PublicKey  string `json:"public_key"`
-	MessageID  string `json:"message_id"`
+	MessageID string `json:"message_id"`
+
+	SenderID   string `json:"-"`
+	ReceiverID string `json:"-"`
+
+	SenderName   string `json:"sender_name"`
+	ReceiverName string `json:"receiver_name"`
+
+	RoomID   string `json:"room_id"`
+	RoomName string `json:"room_name"`
+
+	Prime       string `json:"prime"`
+	G           string `json:"g"`
+	PublicKey   string `json:"public_key"`
+	Algorithm   string `json:"algorithm"`
+	Mode        string `json:"mode"`
+	Padding     string `json:"padding"`
+	Iv          string `json:"iv"`
+	RandomDelta string `json:"random_delta"`
 }
 
 type InvitationReaction struct {
-	SenderId     string `json:"sender_id"`
+	MessageID string `json:"message_id"`
+
+	SenderID   string `json:"sender_id"`
+	ReceiverID string `json:"receiver_id"`
+
 	SenderName   string `json:"sender_name"`
 	ReceiverName string `json:"receiver_name"`
-	RoomID       string `json:"room_id"`
-	PublicKey    string `json:"public_key"`
-	Accepted     bool   `json:"accepted"`
-	MessageID    string `json:"message_id"`
+
+	RoomID    string `json:"room_id"`
+	RoomName  string `json:"room_name"`
+	PublicKey string `json:"public_key"`
+	Accepted  bool   `json:"accepted"`
 }

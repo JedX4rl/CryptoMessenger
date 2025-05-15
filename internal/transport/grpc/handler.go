@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/nats-io/nats.go"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -44,7 +45,8 @@ func (h *ChatHandler) Register(ctx context.Context, req *pb.RegisterRequest) (*p
 	slog.Info("Register response sent")
 
 	return &pb.RegisterResponse{
-		Token: token,
+		Token:  token,
+		UserID: userID,
 	}, nil
 }
 
@@ -68,7 +70,8 @@ func (h *ChatHandler) Login(ctx context.Context, req *pb.LoginRequest) (*pb.Logi
 
 	slog.Info("Login response sent")
 	return &pb.LoginResponse{
-		Token: token,
+		Token:  token,
+		UserID: userID,
 	}, nil
 }
 
@@ -98,7 +101,21 @@ func (h *ChatHandler) InviteUser(ctx context.Context, req *pb.Invitation) (*empt
 		return nil, status.Error(codes.PermissionDenied, err.Error())
 	}
 
-	_, err = h.services.Chat.InviteUser(ctx, senderID, req.ReceiverName, req.RoomId, req.Prime, req.G, req.PublicKey)
+	invitation := domain.ChatInvitation{
+		SenderID:     senderID,
+		ReceiverName: req.ReceiverName,
+		RoomID:       req.RoomId,
+		RoomName:     req.RoomName,
+		Prime:        req.Prime,
+		G:            req.G,
+		PublicKey:    req.PublicKey,
+		Algorithm:    req.Algorithm,
+		Mode:         req.Mode,
+		Padding:      req.Padding,
+		Iv:           req.Iv,
+	}
+
+	_, err = h.services.Chat.InviteUser(ctx, invitation)
 	if err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
@@ -153,18 +170,24 @@ func (h *ChatHandler) ReceiveInvitation(ctx context.Context, _ *emptypb.Empty) (
 	}
 	invitation, err := h.services.Chat.ReceiveInvitation(ctx, clientID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, myErrors.ErrUserNotFound
+		if errors.Is(err, nats.ErrMsgNotFound) {
+			return nil, status.Error(codes.NotFound, err.Error())
 		}
 		return nil, err
 	}
 	return &pb.Invitation{
-		SenderName: invitation.SenderName,
-		RoomId:     invitation.RoomID,
-		Prime:      invitation.Prime,
-		G:          invitation.G,
-		PublicKey:  invitation.PublicKey,
-		MessageId:  invitation.MessageID,
+		SenderName:  invitation.SenderName,
+		RoomId:      invitation.RoomID,
+		Prime:       invitation.Prime,
+		G:           invitation.G,
+		PublicKey:   invitation.PublicKey,
+		RoomName:    invitation.RoomName,
+		Algorithm:   invitation.Algorithm,
+		Mode:        invitation.Mode,
+		Padding:     invitation.Padding,
+		Iv:          invitation.Iv,
+		RandomDelta: invitation.RandomDelta,
+		MessageId:   invitation.MessageID,
 	}, nil
 }
 
@@ -175,7 +198,7 @@ func (h *ChatHandler) ReactToInvitation(ctx context.Context, reaction *pb.Invita
 	}
 
 	invitationReaction := domain.InvitationReaction{
-		SenderId:     clientID,
+		SenderID:     clientID,
 		ReceiverName: reaction.ReceiverName,
 		RoomID:       reaction.RoomId,
 		PublicKey:    reaction.PublicKey,
@@ -192,10 +215,14 @@ func (h *ChatHandler) ReceiveInvitationReaction(ctx context.Context, _ *emptypb.
 	if err != nil {
 		return &pb.InvitationReaction{}, status.Error(codes.PermissionDenied, err.Error())
 	}
+	if clientID == "ebc58cc6-dd67-4b40-ae1d-df763613a48d" {
+		var a = 5
+		_ = a
+	}
 	reaction, err := h.services.Chat.ReceiveInvitationReaction(ctx, clientID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, myErrors.ErrUserNotFound
+		if errors.Is(err, nats.ErrMsgNotFound) {
+			return nil, status.Error(codes.NotFound, err.Error())
 		}
 		return nil, err
 	}

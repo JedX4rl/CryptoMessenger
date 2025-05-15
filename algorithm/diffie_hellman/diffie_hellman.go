@@ -15,7 +15,7 @@ func GeneratePrime(bits int) (*big.Int, error) {
 	return prime, nil
 }
 
-// Генерирует приватный ключ (случайное число меньше prime) A and B
+// Генерирует приватный ключ (случайное число меньше prime) a and b
 func GeneratePrivateKey(prime *big.Int) (*big.Int, error) {
 	privateKey, err := rand.Int(rand.Reader, prime)
 	if err != nil {

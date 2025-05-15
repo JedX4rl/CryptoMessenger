@@ -4,11 +4,13 @@ import (
 	"CryptoMessenger/cmd/client/grpc_client"
 	"fmt"
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"image/color"
 )
 
 type AuthWindow struct {
@@ -21,7 +23,6 @@ type AuthWindow struct {
 func NewAuthWindow(w fyne.Window, chatClient *grpc_client.ChatClient, onSuccess func(userID string)) *AuthWindow {
 	w.SetTitle("CryptoMessenger - Authentication")
 	w.Resize(fyne.NewSize(800, 400))
-	w.SetFixedSize(true)
 	return &AuthWindow{
 		chatClient: chatClient,
 		window:     w,
@@ -31,21 +32,39 @@ func NewAuthWindow(w fyne.Window, chatClient *grpc_client.ChatClient, onSuccess 
 }
 
 func (a *AuthWindow) Show() {
-	card := widget.NewCard(
-		"🔐 Welcome to CryptoMessenger",
-		"Secure your conversations with end-to-end encryption",
-		nil,
-	)
+	// 1) основное и минимальное размеры окна через прозрачный Rect
+	a.window.Resize(fyne.NewSize(800, 400))
+	minSize := canvas.NewRectangle(color.Transparent)
+	minSize.SetMinSize(fyne.NewSize(800, 400))
+	fyne.CurrentApp().Settings().SetTheme(theme.DarkTheme())
 
-	// Поля ввода
+	bg := canvas.NewImageFromFile("cmd/client/ui/test.jpg")
+	bg.FillMode = canvas.ImageFillStretch
+
+	// 3) кнопка темы, обёрнутая в HBoxLayout, чтобы не растягивалась
+	isDark := true
+	var themeBtn *widget.Button
+
+	themeBtn = widget.NewButtonWithIcon("", theme.ColorPaletteIcon(), func() {
+		if isDark {
+			fyne.CurrentApp().Settings().SetTheme(DarkTextTheme{})
+		} else {
+			fyne.CurrentApp().Settings().SetTheme(theme.DarkTheme())
+		}
+		isDark = !isDark
+	})
+
+	themeBtn.Importance = widget.LowImportance
+	themeBtn.Alignment = widget.ButtonAlignCenter
+
+	topBtn := container.New(layout.NewHBoxLayout(), layout.NewSpacer(), themeBtn)
+
+	// 4) поля формы
 	entryName := widget.NewEntry()
-	entryName.SetPlaceHolder("Enter your username or existing UserID")
-
+	entryName.SetPlaceHolder("Enter your username or UserID")
 	entryPassword := widget.NewPasswordEntry()
 	entryPassword.SetPlaceHolder("Enter your password")
-
-	// Валидация полей
-	validateFields := func() error {
+	validate := func() error {
 		if entryName.Text == "" {
 			return fmt.Errorf("username cannot be empty")
 		}
@@ -55,78 +74,79 @@ func (a *AuthWindow) Show() {
 		return nil
 	}
 
-	// Стильные кнопки
-	btnRegister := widget.NewButtonWithIcon("Register", theme.ContentAddIcon(), func() {
-		if err := validateFields(); err != nil {
+	btnReg := widget.NewButtonWithIcon("Register", theme.ContentAddIcon(), func() {
+		if err := validate(); err != nil {
 			dialog.ShowError(err, a.window)
 			return
 		}
-
-		progressDialog := dialog.NewCustom("Registering...", "Cancel", a.progress, a.window)
-		progressDialog.Show()
-
+		pd := dialog.NewCustom("Registering...", "Cancel", a.progress, a.window)
+		pd.Show()
 		go func() {
 			err := a.chatClient.RegisterUser(entryName.Text, entryPassword.Text)
-
-			progressDialog.Hide()
-
+			pd.Hide()
 			if err != nil {
 				dialog.ShowError(err, a.window)
 				return
 			}
-
-			dialog.ShowInformation(
-				"Registration Successful",
-				fmt.Sprintf("Your're in!"),
-				a.window,
-			)
+			info := dialog.NewInformation("Registration Successful", "You're in!", a.window)
+			info.SetOnClosed(func() { a.onSuccess(entryName.Text) })
+			info.Show()
 		}()
 	})
-
-	btnLogin := widget.NewButtonWithIcon("Login", theme.LoginIcon(), func() {
-		if err := validateFields(); err != nil {
+	btnLog := widget.NewButtonWithIcon("Login", theme.LoginIcon(), func() {
+		if err := validate(); err != nil {
 			dialog.ShowError(err, a.window)
 			return
 		}
-
-		progressDialog := dialog.NewCustom("Authenticating...", "Cancel", a.progress, a.window)
-		progressDialog.Show()
-
+		pd := dialog.NewCustom("Authenticating...", "Cancel", a.progress, a.window)
+		pd.Show()
 		go func() {
 			err := a.chatClient.LoginUser(entryName.Text, entryPassword.Text)
-
-			progressDialog.Hide()
-
+			fyne.DoAndWait(func() { pd.Hide() })
 			if err != nil {
-				dialog.ShowError(fmt.Errorf("Invalid credentials. Please check and try again."), a.window)
+				dialog.ShowError(fmt.Errorf("Invalid credentials"), a.window)
 				return
 			}
-
-			dialog.ShowInformation(
-				"Welcome Back!",
-				"Authentication successful",
-				a.window,
-			)
-			a.onSuccess(entryName.Text) // Используем имя пользователя как ID
+			info := dialog.NewInformation("Welcome Back!", "Authentication successful", a.window)
+			info.SetOnClosed(func() { a.onSuccess(entryName.Text) })
+			info.Show()
 		}()
 	})
 
-	// Красивое расположение элементов
+	// 5) собираем форму
 	form := container.NewVBox(
-		widget.NewLabelWithStyle("Get started with CryptoMessenger", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle("🔐 Welcome to CryptoMessenger", fyne.TextAlignCenter, fyne.TextStyle{Bold: true}),
+		widget.NewLabelWithStyle("Secure your conversations with end-to-end encryption", fyne.TextAlignCenter, fyne.TextStyle{}),
 		layout.NewSpacer(),
 		entryName,
 		entryPassword,
 		layout.NewSpacer(),
-		container.NewGridWithColumns(
-			2,
-			btnRegister,
-			btnLogin,
-		),
+		container.NewGridWithColumns(2, btnReg, btnLog),
 	)
 
-	card.SetContent(form)
-	centered := container.NewCenter(card)
-	a.window.SetContent(centered)
+	// 6) имитируем Card, но с фоновой Rect и заданной прозрачностью
+	//    — для полностью непрозрачной карточки: A = 255
+	//    — для 30% прозрачности: A ≈ 77
+	cardBg := canvas.NewRectangle(color.NRGBA{R: 255, G: 255, B: 255, A: 77})
+	cardBg.SetMinSize(fyne.NewSize(400, 280))
+
+	cardContent := container.NewMax(cardBg, container.NewPadded(form))
+
+	// 7) собираем overlay: кнопка сверху-лево, карточка по центру
+	overlay := container.NewBorder(
+		topBtn, // top
+		nil,    // bottom
+		nil,    // left
+		nil,    // right
+		container.NewCenter(cardContent),
+	)
+
+	// 8) финальный стек: сначала minSize, потом фон, потом overlay
+	a.window.SetContent(container.NewMax(
+		minSize,
+		bg,
+		overlay,
+	))
+
 	a.window.Show()
 }

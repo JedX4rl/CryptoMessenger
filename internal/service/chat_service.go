@@ -16,8 +16,8 @@ type ChatService struct {
 	jsClient *natsjs.JSClient
 }
 
-func NewChatService(repo repository.RoomRepo, keys repository.KeyRepo, users repository.UserRepo, broker *natsjs.JSClient) *ChatService {
-	return &ChatService{rooms: repo, keys: keys, users: users, jsClient: broker}
+func NewChatService(repo repository.RoomRepo, keys repository.KeyRepo, users repository.UserRepo, jsClient *natsjs.JSClient) *ChatService {
+	return &ChatService{rooms: repo, keys: keys, users: users, jsClient: jsClient}
 }
 
 func (s *ChatService) CreateRoom(ctx context.Context, cfg domain.RoomConfig) (string, error) {
@@ -28,41 +28,36 @@ func (s *ChatService) CreateRoom(ctx context.Context, cfg domain.RoomConfig) (st
 	return cfg.RoomID, nil
 }
 
-func (s *ChatService) InviteUser(ctx context.Context, senderID, receiverName, roomID, prime, g, publicKey string) (string, error) {
+func (s *ChatService) InviteUser(ctx context.Context, invitation domain.ChatInvitation) (string, error) {
 
 	var err error
 
-	sender, err := s.users.GetByID(ctx, senderID)
+	sender, err := s.users.GetByID(ctx, invitation.SenderID)
 	if err != nil {
 		return "", fmt.Errorf("cannot get sender: %w", err)
 	}
 
-	receiver, err := s.users.GetByUsername(ctx, receiverName)
+	receiver, err := s.users.GetByUsername(ctx, invitation.ReceiverName)
 	if err != nil {
-		return "", fmt.Errorf("user doesnt't exist: %w", err)
+		return "", fmt.Errorf("user doesnt't exist")
 	}
-
-	if err = s.jsClient.EnsureInvitesConsumer(receiver.ID); err != nil {
-		return "", fmt.Errorf("failed to init consumer: %w", err)
-	}
-
-	//if err = s.rooms.AddMember(ctx, roomID, to); err != nil {
-	//	return "", fmt.Errorf("cannot add user to room: %w", err)
-	//}
 
 	messageID := uuid.New().String()
-	message := &natsjs.InvitationMessage{
-		MessageID:    messageID,
-		SenderName:   sender.Username,
-		ReceiverName: receiver.Username,
-		ReceiverID:   receiver.ID,
-		RoomID:       roomID,
-		Prime:        prime,
-		G:            g,
-		PublicKey:    publicKey,
-	}
+	invitation.SenderName = sender.Username
+	invitation.ReceiverID = receiver.ID
+	invitation.MessageID = messageID
+	//message := &natsjs.InvitationMessage{
+	//	MessageID:    messageID,
+	//	SenderName:   sender.Username,
+	//	ReceiverName: receiver.Username,
+	//	ReceiverID:   receiver.ID,
+	//	RoomID:       roomID,
+	//	Prime:        prime,
+	//	G:            g,
+	//	PublicKey:    publicKey,
+	//}
 
-	if err = s.jsClient.PublishInvitation(ctx, message); err != nil {
+	if err = s.jsClient.PublishInvitation(ctx, invitation); err != nil {
 		return "", fmt.Errorf("failed to publish invitation: %w", err)
 	}
 
@@ -82,7 +77,7 @@ func (s *ChatService) ReceiveInvitationReaction(ctx context.Context, userID stri
 }
 
 func (s *ChatService) ReactToInvitation(ctx context.Context, reaction domain.InvitationReaction) error {
-	sender, err := s.users.GetByID(ctx, reaction.SenderId)
+	sender, err := s.users.GetByID(ctx, reaction.SenderID)
 	if err != nil {
 		return fmt.Errorf("cannot get sender: %w", err)
 	}
@@ -90,21 +85,14 @@ func (s *ChatService) ReactToInvitation(ctx context.Context, reaction domain.Inv
 	if err != nil {
 		return fmt.Errorf("user doesnt't exist: %w", err)
 	}
-	if err = s.jsClient.EnsureInvitesConsumer(receiver.ID); err != nil {
-		return fmt.Errorf("failed to init consumer: %w", err)
-	}
 	messageID := uuid.New().String()
-	message := &natsjs.InvitationMessage{
-		MessageID:    messageID,
-		SenderName:   sender.Username,
-		ReceiverName: receiver.Username,
-		ReceiverID:   receiver.ID,
-		RoomID:       reaction.RoomID,
-		PublicKey:    reaction.PublicKey,
-		Accepted:     reaction.Accepted,
-	}
 
-	if err = s.jsClient.PublishInvitationReaction(ctx, message); err != nil {
+	reaction.MessageID = messageID
+	reaction.SenderName = sender.Username
+	reaction.ReceiverName = receiver.Username
+	reaction.ReceiverID = receiver.ID
+
+	if err = s.jsClient.PublishInvitationReaction(ctx, reaction); err != nil {
 		return fmt.Errorf("failed to publish invitation: %w", err)
 	}
 

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 )
 
 type UserRepository struct {
@@ -28,9 +29,13 @@ func (u *UserRepository) GetByUsername(ctx context.Context, username string) (do
 
 	row := u.db.QueryRowContext(ctx, query, username)
 	if err := row.Err(); err != nil {
+		slog.Error("error while getting user by username", err, username)
+		slog.Info("username", username)
 		return domain.User{}, fmt.Errorf("error getting user by username: %w", err)
 	}
 	if err := row.Scan(&user.ID, &user.Username, &user.PasswordHash); err != nil {
+
+		slog.Error("error while getting user by username", err)
 		return domain.User{}, fmt.Errorf("error getting user by username: %w", err)
 	}
 	return user, nil

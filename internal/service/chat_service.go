@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/google/uuid"
+	"log/slog"
 )
 
 type ChatService struct {
@@ -22,6 +23,7 @@ func NewChatService(repo repository.RoomRepo, keys repository.KeyRepo, users rep
 
 func (s *ChatService) CreateRoom(ctx context.Context, cfg domain.RoomConfig) (string, error) {
 	cfg.RoomID = uuid.New().String()
+
 	if err := s.rooms.Create(ctx, cfg); err != nil {
 		return "", fmt.Errorf("cannot create room: %w", err)
 	}
@@ -31,6 +33,7 @@ func (s *ChatService) CreateRoom(ctx context.Context, cfg domain.RoomConfig) (st
 func (s *ChatService) InviteUser(ctx context.Context, invitation domain.ChatInvitation) (string, error) {
 
 	var err error
+	slog.Info(invitation.RoomID)
 
 	sender, err := s.users.GetByID(ctx, invitation.SenderID)
 	if err != nil {
@@ -42,29 +45,27 @@ func (s *ChatService) InviteUser(ctx context.Context, invitation domain.ChatInvi
 		return "", fmt.Errorf("user doesnt't exist")
 	}
 
+	if sender.Username == receiver.Username {
+		return "", fmt.Errorf("sender and receiver cannot be the same user")
+	}
+
 	messageID := uuid.New().String()
 	invitation.SenderName = sender.Username
 	invitation.ReceiverID = receiver.ID
 	invitation.MessageID = messageID
-	//message := &natsjs.InvitationMessage{
-	//	MessageID:    messageID,
-	//	SenderName:   sender.Username,
-	//	ReceiverName: receiver.Username,
-	//	ReceiverID:   receiver.ID,
-	//	RoomID:       roomID,
-	//	Prime:        prime,
-	//	G:            g,
-	//	PublicKey:    publicKey,
-	//}
 
 	if err = s.jsClient.PublishInvitation(ctx, invitation); err != nil {
 		return "", fmt.Errorf("failed to publish invitation: %w", err)
 	}
 
+	if err = s.jsClient.EnsureMessagesConsumer(invitation.SenderID, messageID); err != nil {
+		return "", fmt.Errorf("failed to ensure messages: %w", err)
+	}
+
 	return messageID, nil
 }
 
-func (s *ChatService) AckInvite(messageID string) error {
+func (s *ChatService) AckEvent(messageID string) error {
 	return s.jsClient.AckEvent(messageID)
 }
 
@@ -87,6 +88,8 @@ func (s *ChatService) ReactToInvitation(ctx context.Context, reaction domain.Inv
 	}
 	messageID := uuid.New().String()
 
+	slog.Info("roomID", reaction.RoomID)
+
 	reaction.MessageID = messageID
 	reaction.SenderName = sender.Username
 	reaction.ReceiverName = receiver.Username
@@ -96,7 +99,41 @@ func (s *ChatService) ReactToInvitation(ctx context.Context, reaction domain.Inv
 		return fmt.Errorf("failed to publish invitation: %w", err)
 	}
 
+	if reaction.Accepted {
+		if err = s.jsClient.EnsureMessagesConsumer(reaction.SenderID, reaction.RoomID); err != nil {
+			return fmt.Errorf("failed to ensure messages: %w", err)
+		}
+	}
+
 	return nil
+}
+
+func (s *ChatService) SendMessage(ctx context.Context, message *domain.ChatMessage) error {
+	sender, err := s.users.GetByID(ctx, message.SenderID)
+	if err != nil {
+		return fmt.Errorf("cannot get sender: %w", err)
+	}
+
+	receiver, err := s.users.GetByUsername(ctx, message.ReceiverName)
+	if err != nil {
+		return fmt.Errorf("user doesnt't exist: %w", err)
+	}
+
+	message.ReceiverID = receiver.ID
+	message.SenderName = sender.Username
+
+	if err = s.jsClient.PublishChatMessage(ctx, message); err != nil {
+		return fmt.Errorf("failed to publish invitation: %w", err)
+	}
+	return nil
+}
+
+func (s *ChatService) ReceiveMessage(ctx context.Context, userID, chatID string) (domain.ChatMessage, error) {
+	msg, err := s.jsClient.FetchOneChatMessage(ctx, userID, chatID)
+	if err != nil {
+		return domain.ChatMessage{}, fmt.Errorf("failed to fetch chat message: %w", err)
+	}
+	return msg, nil
 }
 
 func (s *ChatService) CloseRoom(ctx context.Context, roomID string) error {
@@ -129,18 +166,6 @@ func (s *ChatService) SendPublicKey(ctx context.Context, roomID, clientID, pubHe
 func (s *ChatService) GetPublicKeys(ctx context.Context, roomID string) ([]domain.PublicKey, error) {
 	//return s.keys.List(ctx, roomID)
 	return nil, nil
-}
-
-func (s *ChatService) SendMessage(ctx context.Context, msg domain.EncryptedMessage) error {
-	// Сериализуем EncryptedMessage в protobuf-байты
-	return nil
-}
-
-func (s *ChatService) ReceiveMessages(ctx context.Context, roomID, clientID string) (<-chan domain.EncryptedMessage, error) {
-
-	out := make(chan domain.EncryptedMessage)
-
-	return out, nil
 }
 
 func (s *ChatService) GetRoomConfig(ctx context.Context, roomID string) (domain.RoomConfig, error) {

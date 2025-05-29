@@ -1,21 +1,25 @@
 package symmetric
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 )
 
-func (c *CipherContext) EncryptFile(inputPath, outputPath string) error {
-	if _, err := os.Stat(inputPath); os.IsNotExist(err) {
-		return fmt.Errorf("inputPath %s does not exist", inputPath)
+func (c *CipherContext) EncryptFile(ctx context.Context, inputPath, outputPath string, progress func(done, total int)) error {
+	inputInfo, err := os.Stat(inputPath)
+	if err != nil {
+		return fmt.Errorf("failed to stat input file: %w", err)
+	}
+	if inputInfo.IsDir() {
+		return fmt.Errorf("inputPath %s is a directory", inputPath)
 	}
 
-	outputDir := filepath.Dir(outputPath)
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return err
-	}
+	fileSize := inputInfo.Size()
+	chunkSize := int64(c.blockSize * 1024)
+	totalChunks := int((fileSize + chunkSize - 1) / chunkSize)
 
 	inputFile, err := os.Open(inputPath)
 	if err != nil {
@@ -23,44 +27,65 @@ func (c *CipherContext) EncryptFile(inputPath, outputPath string) error {
 	}
 	defer inputFile.Close()
 
+	outputDir := filepath.Dir(outputPath)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return err
+	}
+
 	outputFile, err := os.Create(outputPath)
 	if err != nil {
 		return fmt.Errorf("cannot open output file: %w", err)
 	}
 	defer outputFile.Close()
 
-	buffer := make([]byte, c.blockSize*1024)
+	buffer := make([]byte, chunkSize)
+	chunkIndex := 0
+
 	for {
+		select {
+		case <-ctx.Done():
+			_ = os.Remove(outputPath)
+			return ctx.Err()
+		default:
+		}
+
 		n, err := inputFile.Read(buffer)
 		if err != nil && err != io.EOF {
-			return err
+			return fmt.Errorf("read error: %w", err)
 		}
 		if n == 0 {
 			break
 		}
 
-		encrypted, err := c.Encrypt(buffer[:n])
+		encrypted, err := c.Encrypt(buffer[:n], chunkIndex, totalChunks)
 		if err != nil {
-			return err
+			return fmt.Errorf("encrypt chunk %d failed: %w", chunkIndex, err)
 		}
 
 		if _, err := outputFile.Write(encrypted); err != nil {
-			return err
+			return fmt.Errorf("write error: %w", err)
 		}
+
+		chunkIndex++
+		progress(chunkIndex, totalChunks)
 	}
 
 	return nil
 }
 
-func (c *CipherContext) DecryptFile(inputPath, outputPath string) error {
-	if _, err := os.Stat(inputPath); os.IsNotExist(err) {
-		return fmt.Errorf("inputPath %s does not exist", inputPath)
+func (c *CipherContext) DecryptFile(inputPath, outputPath string, progress func(done, total int)) error {
+	inputInfo, err := os.Stat(inputPath)
+	if err != nil {
+		return fmt.Errorf("failed to stat input file: %w", err)
+	}
+	if inputInfo.IsDir() {
+		return fmt.Errorf("inputPath %s is a directory", inputPath)
 	}
 
-	outputDir := filepath.Dir(outputPath)
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return err
-	}
+	// Вычисляем общее количество чанков
+	fileSize := inputInfo.Size()
+	chunkSize := int64(c.blockSize * 1024)
+	totalChunks := int((fileSize + chunkSize - 1) / chunkSize)
 
 	inputFile, err := os.Open(inputPath)
 	if err != nil {
@@ -68,36 +93,46 @@ func (c *CipherContext) DecryptFile(inputPath, outputPath string) error {
 	}
 	defer inputFile.Close()
 
+	outputDir := filepath.Dir(outputPath)
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return err
+	}
+
 	outputFile, err := os.Create(outputPath)
 	if err != nil {
 		return fmt.Errorf("cannot open output file: %w", err)
 	}
 	defer outputFile.Close()
 
-	buffer := make([]byte, c.blockSize*1024)
+	buffer := make([]byte, chunkSize)
+	chunkIndex := 0
+
 	for {
 		n, err := inputFile.Read(buffer)
 		if err != nil && err != io.EOF {
-			return err
+			return fmt.Errorf("read error: %w", err)
 		}
 		if n == 0 {
 			break
 		}
 
-		decrypted, err := c.Decrypt(buffer[:n])
+		decrypted, err := c.Decrypt(buffer[:n], chunkIndex, totalChunks)
 		if err != nil {
-			return err
+			return fmt.Errorf("decrypt chunk %d failed: %w", chunkIndex, err)
 		}
 
-		if _, err := outputFile.Write(decrypted); err != nil {
-			return err
+		if _, err = outputFile.Write(decrypted); err != nil {
+			return fmt.Errorf("write error: %w", err)
 		}
+
+		chunkIndex++
+		progress(chunkIndex, totalChunks)
 	}
 
 	return nil
 }
 
-func (c *CipherContext) EncryptFileAsync(inputPath, outputPath string) (<-chan struct{}, <-chan error) {
+func (c *CipherContext) EncryptFileAsync(ctx context.Context, inputPath, outputPath string, progress func(done, total int)) (<-chan struct{}, <-chan error) {
 	successChan := make(chan struct{}, 1)
 	errorChan := make(chan error, 1)
 
@@ -105,7 +140,7 @@ func (c *CipherContext) EncryptFileAsync(inputPath, outputPath string) (<-chan s
 		defer close(successChan)
 		defer close(errorChan)
 
-		if err := c.EncryptFile(inputPath, outputPath); err != nil {
+		if err := c.EncryptFile(ctx, inputPath, outputPath, progress); err != nil {
 			errorChan <- err
 			return
 		}
@@ -115,7 +150,7 @@ func (c *CipherContext) EncryptFileAsync(inputPath, outputPath string) (<-chan s
 	return successChan, errorChan
 }
 
-func (c *CipherContext) DecryptFileAsync(inputPath, outputPath string) (<-chan struct{}, <-chan error) {
+func (c *CipherContext) DecryptFileAsync(inputPath, outputPath string, progress func(done, total int)) (<-chan struct{}, <-chan error) {
 	successChan := make(chan struct{}, 1)
 	errorChan := make(chan error, 1)
 
@@ -123,7 +158,7 @@ func (c *CipherContext) DecryptFileAsync(inputPath, outputPath string) (<-chan s
 		defer close(successChan)
 		defer close(errorChan)
 
-		if err := c.DecryptFile(inputPath, outputPath); err != nil {
+		if err := c.DecryptFile(inputPath, outputPath, progress); err != nil {
 			errorChan <- err
 			return
 		}

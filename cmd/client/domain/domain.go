@@ -2,6 +2,7 @@ package domain
 
 import (
 	"math/big"
+	"time"
 )
 
 type Chat struct {
@@ -60,4 +61,15 @@ type DiffieHellmanParams struct {
 	MyPublicKey    *big.Int
 	OtherPublicKey *big.Int
 	PrivateKey     *big.Int
+}
+
+type StoredMessage struct {
+	MessageID   string    `json:"message_id"`
+	Sender      string    `json:"sender"`
+	Type        string    `json:"type"`
+	Content     string    `json:"content,omitempty"`
+	Filename    string    `json:"filename,omitempty"`
+	Filepath    string    `json:"filepath,omitempty"`
+	TotalChunks int       `json:"total_chunks,omitempty"`
+	Timestamp   time.Time `json:"timestamp"`
 }

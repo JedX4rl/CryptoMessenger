@@ -1,5 +1,7 @@
 package domain
 
+import "time"
+
 type User struct {
 	ID           string
 	Username     string
@@ -66,4 +68,36 @@ type InvitationReaction struct {
 	RoomName  string `json:"room_name"`
 	PublicKey string `json:"public_key"`
 	Accepted  bool   `json:"accepted"`
+}
+
+type ChatMessage struct {
+	MessageID    string    `json:"message_id"`
+	SenderID     string    `json:"sender_id"`
+	SenderName   string    `json:"sender_name"`
+	ReceiverID   string    `json:"receiver_id"`
+	ReceiverName string    `json:"receiver_name"`
+	ChatID       string    `json:"chat_id"`
+	Timestamp    time.Time `json:"timestamp"`
+
+	Text       TextPayload `json:"text"`
+	FileHeader FileHeader  `json:"file_header"`
+	FileChunk  *FileChunk  `json:"file_chunk"`
+}
+
+type TextPayload struct {
+	Content string `json:"content"`
+}
+
+type FileHeader struct {
+	FileID      string `json:"file_id"`
+	Filename    string `json:"filename"`
+	TotalChunks int    `json:"total_chunks"`
+}
+
+type FileChunk struct {
+	FileID      string `json:"file_id"`
+	Filename    string `json:"filename"`
+	ChunkIndex  int    `json:"chunk_index"`
+	TotalChunks int    `json:"total_chunks"`
+	ChunkData   []byte `json:"chunk_data"`
 }

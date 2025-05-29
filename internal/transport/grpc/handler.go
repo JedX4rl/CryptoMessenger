@@ -10,10 +10,10 @@ import (
 	"database/sql"
 	"errors"
 	"github.com/nats-io/nats.go"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"log/slog"
 )
 
@@ -125,9 +125,9 @@ func (h *ChatHandler) InviteUser(ctx context.Context, req *pb.Invitation) (*empt
 	return &emptypb.Empty{}, nil
 }
 
-func (h *ChatHandler) AckInvite(ctx context.Context, req *pb.AckRequest) (*emptypb.Empty, error) {
+func (h *ChatHandler) AckEvent(ctx context.Context, req *pb.AckRequest) (*emptypb.Empty, error) {
 	slog.Info("AckEvent request received")
-	if err := h.services.Chat.AckInvite(req.MessageId); err != nil {
+	if err := h.services.Chat.AckEvent(req.MessageId); err != nil {
 		return nil, status.Error(codes.NotFound, "message not found")
 	}
 	slog.Info("AckEvent response sent")
@@ -215,10 +215,6 @@ func (h *ChatHandler) ReceiveInvitationReaction(ctx context.Context, _ *emptypb.
 	if err != nil {
 		return &pb.InvitationReaction{}, status.Error(codes.PermissionDenied, err.Error())
 	}
-	if clientID == "ebc58cc6-dd67-4b40-ae1d-df763613a48d" {
-		var a = 5
-		_ = a
-	}
 	reaction, err := h.services.Chat.ReceiveInvitationReaction(ctx, clientID)
 	if err != nil {
 		if errors.Is(err, nats.ErrMsgNotFound) {
@@ -236,60 +232,80 @@ func (h *ChatHandler) ReceiveInvitationReaction(ctx context.Context, _ *emptypb.
 	}, nil
 }
 
-func (h *ChatHandler) SendMessage(ctx context.Context, req *pb.SendMessageRequest) (*emptypb.Empty, error) {
-	//err := h.chatUC.SendMessage(ctx, usecase.SendMessageParams{
-	//	RoomID:           req.RoomId,
-	//	ClientID:         req.ClientId,
-	//	EncryptedMessage: req.EncryptedMessage,
-	//	MessageType:      req.MessageType,
-	//	FileName:         req.FileName,
-	//})
+func (h *ChatHandler) SendMessage(ctx context.Context, req *pb.ChatMessage) (*emptypb.Empty, error) {
+	senderID, err := GetClientID(ctx)
+	if err != nil {
+		return nil, status.Error(codes.PermissionDenied, err.Error())
+	}
+
+	chatMessage := &domain.ChatMessage{
+		MessageID:    req.MessageId,
+		SenderID:     senderID,
+		ReceiverName: req.ReceiverName,
+		ChatID:       req.ChatId,
+		Timestamp:    req.Timestamp.AsTime(),
+	}
+
+	switch payload := req.Payload.(type) {
+	case *pb.ChatMessage_Text:
+		chatMessage.Text = domain.TextPayload{
+			Content: payload.Text.Content,
+		}
+	case *pb.ChatMessage_Chunk:
+		chatMessage.FileChunk = &domain.FileChunk{
+			FileID:      payload.Chunk.FileId,
+			Filename:    payload.Chunk.Filename,
+			ChunkIndex:  int(payload.Chunk.ChunkIndex),
+			TotalChunks: int(payload.Chunk.TotalChunks),
+			ChunkData:   payload.Chunk.ChunkData,
+		}
+	default:
+		return nil, status.Error(codes.InvalidArgument, "unknown payload type")
+	}
+
+	if err := h.services.Chat.SendMessage(ctx, chatMessage); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 	return &emptypb.Empty{}, nil
 }
 
-func (h *ChatHandler) ReceiveMessages(req *pb.ReceiveMessagesRequest, g grpc.ServerStreamingServer[pb.ReceiveMessagesResponse]) (*emptypb.Empty, error) {
-	//msgsCh, err := h.chatUC.ReceiveMessages(stream.Context(), req.RoomId, req.ClientId)
-	//if err != nil {
-	//	return err
-	//}
-	//
-	//for {
-	//	select {
-	//	case <-stream.Context().Done():
-	//		return stream.Context().Err()
-	//	case msg, ok := <-msgsCh:
-	//		if !ok {
-	//			return nil
-	//		}
-	//		if err := stream.Send(&pb.ReceiveMessagesResponse{
-	//			SenderId:         msg.SenderID,
-	//			EncryptedMessage: msg.Data,
-	//			MessageType:      msg.Type,
-	//			FileName:         msg.FileName,
-	//			ChunkIndex:       int32(msg.ChunkIndex),
-	//			TotalChunks:      int32(msg.TotalChunks),
-	//		}); err != nil {
-	//			return err
-	//		}
-	//	}
-	//}
-	return &emptypb.Empty{}, nil
-}
+func (h *ChatHandler) ReceiveMessage(ctx context.Context, req *pb.ReceiveMessagesRequest) (*pb.ChatMessage, error) {
+	msg, err := h.services.Chat.ReceiveMessage(ctx, req.UserId, req.ChatId)
+	if err != nil {
+		if errors.Is(err, nats.ErrMsgNotFound) {
+			return nil, status.Error(codes.NotFound, err.Error())
+		}
+		return nil, status.Error(codes.Internal, err.Error())
+	}
 
-//func (h *ChatHandler) GetRoom(ctx context.Context, req *pb.GetRoomRequest) (*pb.GetRoomResponse, error) {
-//	cfg, err := h.services.GetRoomConfig(ctx, req.RoomId)
-//	if err != nil {
-//		return nil, err
-//	}
-//	return &pb.GetRoomResponse{
-//		Algorithm: cfg.Algorithm,
-//		Mode:      cfg.Mode,
-//		Padding:   cfg.Padding,
-//		Prime:     cfg.PrimeHex,
-//	}, nil
-//}
+	chatMsg := &pb.ChatMessage{
+		MessageId:  msg.MessageID,
+		SenderId:   msg.SenderID,
+		SenderName: msg.SenderName,
+		ChatId:     msg.ChatID,
+		Timestamp:  timestamppb.New(msg.Timestamp),
+	}
 
-func (h *ChatHandler) MustEmbedUnimplementedChatservicesServer() {
-	//TODO implement me
-	panic("implement me")
+	switch {
+	case msg.Text != domain.TextPayload{}:
+		chatMsg.Payload = &pb.ChatMessage_Text{
+			Text: &pb.TextPayload{
+				Content: msg.Text.Content,
+			},
+		}
+	case msg.FileChunk != nil:
+		chatMsg.Payload = &pb.ChatMessage_Chunk{
+			Chunk: &pb.FileChunk{
+				FileId:      msg.FileChunk.FileID,
+				Filename:    msg.FileChunk.Filename,
+				ChunkIndex:  int32(msg.FileChunk.ChunkIndex),
+				TotalChunks: int32(msg.FileChunk.TotalChunks),
+				ChunkData:   msg.FileChunk.ChunkData,
+			},
+		}
+	default:
+		return nil, status.Error(codes.InvalidArgument, "unknown message payload")
+	}
+
+	return chatMsg, nil
 }

@@ -19,15 +19,15 @@ type Chat interface {
 	LeaveRoom(ctx context.Context, roomID, clientID string) error
 	SendPublicKey(ctx context.Context, roomID, clientID, pubHex string) error
 	GetPublicKeys(ctx context.Context, roomID string) ([]domain.PublicKey, error)
-	SendMessage(ctx context.Context, msg domain.EncryptedMessage) error
-	ReceiveMessages(ctx context.Context, roomID, clientID string) (<-chan domain.EncryptedMessage, error)
+	SendMessage(ctx context.Context, msg *domain.ChatMessage) error
+	ReceiveMessage(ctx context.Context, roomID, clientID string) (domain.ChatMessage, error)
 	GetRoomConfig(ctx context.Context, roomID string) (domain.RoomConfig, error)
 	SendInvitation(ctx context.Context, invite domain.ChatInvitation) error
 	InviteUser(ctx context.Context, invitation domain.ChatInvitation) (string, error)
 	ReceiveInvitation(ctx context.Context, userID string) (domain.ChatInvitation, error)
 	ReceiveInvitationReaction(ctx context.Context, userID string) (domain.InvitationReaction, error)
 	ReactToInvitation(ctx context.Context, reaction domain.InvitationReaction) error
-	AckInvite(messageID string) error
+	AckEvent(messageID string) error
 }
 
 type Service struct {

@@ -2,7 +2,9 @@ package ui
 
 import (
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/theme"
+	"fyne.io/fyne/v2/widget"
 	"image/color"
 )
 
@@ -25,4 +27,26 @@ func (DarkTextTheme) Font(s fyne.TextStyle) fyne.Resource {
 }
 func (DarkTextTheme) Size(n fyne.ThemeSizeName) float32 {
 	return theme.LightTheme().Size(n)
+}
+
+type TransparentButton struct {
+	widget.BaseWidget
+	OnTapped func()
+}
+
+func NewTransparentButton(onTap func()) *TransparentButton {
+	btn := &TransparentButton{OnTapped: onTap}
+	btn.ExtendBaseWidget(btn)
+	return btn
+}
+
+func (b *TransparentButton) CreateRenderer() fyne.WidgetRenderer {
+	// Без фона и без текста
+	return widget.NewSimpleRenderer(container.NewWithoutLayout())
+}
+
+func (b *TransparentButton) Tapped(_ *fyne.PointEvent) {
+	if b.OnTapped != nil {
+		b.OnTapped()
+	}
 }

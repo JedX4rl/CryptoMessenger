@@ -2,6 +2,7 @@ syntax = "proto3";
 package chat;
 
 import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
 
 option go_package = "proto/chatpb;chatpb";
 
@@ -16,15 +17,15 @@ service ChatService {
   rpc JoinRoom(JoinRoomRequest) returns (google.protobuf.Empty);
   rpc LeaveRoom(LeaveRoomRequest) returns (google.protobuf.Empty);
 
-  rpc SendMessage(SendMessageRequest) returns (google.protobuf.Empty);
-  rpc ReceiveMessage(ReceiveMessagesRequest) returns (stream ReceiveMessagesResponse);
+  rpc SendMessage(ChatMessage) returns (google.protobuf.Empty);
+  rpc ReceiveMessage(ReceiveMessagesRequest) returns (ChatMessage);
 
   rpc InviteUser(Invitation) returns (google.protobuf.Empty);
   rpc ReceiveInvitation(google.protobuf.Empty) returns (Invitation);
   rpc ReactToInvitation(InvitationReaction) returns (google.protobuf.Empty);
   rpc ReceiveInvitationReaction(google.protobuf.Empty) returns (InvitationReaction);
 
-  rpc AckInvite(AckRequest) returns (google.protobuf.Empty);
+  rpc AckEvent(AckRequest) returns (google.protobuf.Empty);
 
 }
 
@@ -74,27 +75,6 @@ message LeaveRoomRequest {
   string room_id = 1;
 }
 
-message SendMessageRequest {
-  string room_id = 1;
-  string client_id = 2;
-  bytes encrypted_message = 3;
-  string message_type = 4; // "message" или "file"
-  string file_name = 5; //если файл
-}
-
-message ReceiveMessagesRequest {
-  string room_id = 1;
-}
-
-message ReceiveMessagesResponse {
-  string type = 1; // "public_key" или "message"
-  string sender_id = 2;
-  bytes encrypted_message = 3;
-  string file_name = 4;
-  int32 chunk_index = 5; // для больших файлов
-  int32 total_chunks = 6;
-}
-
 message Invitation {
   string sender_name = 1;
   string receiver_name = 2;
@@ -122,4 +102,44 @@ message InvitationReaction {
 
 message AckRequest {
   string message_id = 1;
+}
+
+message ChatMessage {
+  string message_id = 1;
+  string sender_id = 2;
+  string sender_name = 3;
+  string receiver_id = 4;
+  string receiver_name = 5;
+  string chat_id = 6;
+  google.protobuf.Timestamp timestamp = 7;
+
+  oneof payload {
+    TextPayload text = 8;
+//    FileHeader file = 9;
+    FileChunk chunk = 9;
+  }
+}
+message ReceiveMessagesRequest {
+  string user_id = 1;
+  string chat_id = 2;
+}
+
+message TextPayload {
+  string content = 1; // до 256 байт
+}
+
+/*
+message FileHeader {
+  string file_id = 1;
+  string filename = 2;
+  int32 total_chunks = 3;
+}
+*/
+
+message FileChunk {
+  string file_id = 1;
+  string filename = 2;
+  int32 chunk_index = 3;
+  int32 total_chunks = 4;
+  bytes chunk_data = 5;
 }

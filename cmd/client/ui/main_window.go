@@ -12,12 +12,16 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"image/color"
 	"log"
+	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -29,6 +33,14 @@ type MainWindow struct {
 	userID            string
 	leftPanelContent  *fyne.Container
 	rightPanelContent *fyne.Container
+	chatHistory       *fyne.Container
+	chatScroll        *container.Scroll
+	messageInput      *widget.Entry
+	sendButton        *widget.Button
+	attachButton      *widget.Button
+	cancelButton      *widget.Button
+	progressBar       *widget.ProgressBar
+	cancelSending     context.CancelFunc
 }
 
 func NewMainWindow(w fyne.Window, chatClient *grpc_client.ChatClient, userID string) *MainWindow {
@@ -45,34 +57,121 @@ func (m *MainWindow) Show() {
 
 	go m.checkInvitationsPeriodically()
 	go m.checkInvitationResponsesPeriodically()
+	go m.getMessages()
+	go m.refreshChat()
 
 	// Фоновая картинка
 	bgImage := canvas.NewImageFromFile("cmd/client/ui/test.jpg")
 	bgImage.FillMode = canvas.ImageFillStretch
-	// Полупрозрачная накладка: начально 30% (A≈77)
 	dim := canvas.NewRectangle(color.NRGBA{R: 255, G: 255, B: 255, A: 30})
 	dim.SetMinSize(fyne.NewSize(800, 600))
 
+	var selectedFileLabel *widget.Label
+	var selectedFilePath string
+	selectedFileLabel = widget.NewLabel("")
+	selectedFileLabel.Wrapping = fyne.TextTruncate
+
 	m.leftPanelContent = container.NewVBox()
-	m.refreshChatList()
+	//m.refreshChatList()
 	leftScroll := container.NewVScroll(m.leftPanelContent)
 	leftScroll.SetMinSize(fyne.NewSize(300, 0))
 
-	m.rightPanelContent = container.NewVBox(widget.NewLabel("Здесь будет показан чат при клике"))
-	rightScroll := container.NewVScroll(m.rightPanelContent)
-	rightScroll.SetMinSize(fyne.NewSize(500, 0))
+	m.chatHistory = container.NewVBox()
 
-	go func() {
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
-		for range ticker.C {
+	m.chatScroll = container.NewVScroll(m.chatHistory)
+	m.chatScroll.SetMinSize(fyne.NewSize(500, 0))
+
+	m.messageInput = widget.NewMultiLineEntry()
+	m.messageInput.SetPlaceHolder("Введите сообщение...")
+
+	m.messageInput.Wrapping = fyne.TextWrapWord // Включить перенос слов
+
+	m.attachButton = widget.NewButtonWithIcon("", theme.FolderOpenIcon(), func() {
+		dialog.NewFileOpen(func(reader fyne.URIReadCloser, err error) {
+			if err != nil {
+				dialog.ShowError(err, m.window)
+				return
+			}
+			if reader == nil {
+				return
+			}
+
+			selectedFilePath = reader.URI().Path()
+			filename := filepath.Base(selectedFilePath)
+			selectedFileLabel.SetText("📎 " + filename)
+
+		}, m.window).Show()
+	})
+
+	m.progressBar = widget.NewProgressBar()
+	m.progressBar.Hide() // сначала скрыт
+
+	m.cancelButton = widget.NewButton("Отменить", func() {
+		if m.cancelSending != nil {
+			m.cancelSending()
+			m.cancelSending = nil
+		}
+	})
+	m.cancelButton.Hide()
+
+	m.sendButton = widget.NewButton("Отправить", func() {
+		text := strings.TrimSpace(m.messageInput.Text)
+
+		if text == "" && selectedFilePath == "" {
+			dialog.ShowError(fmt.Errorf("нельзя отправить пустое сообщение и без файла"), m.window)
+			return
+		}
+
+		m.progressBar.SetValue(0)
+		m.progressBar.Show()
+		m.cancelButton.Show()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		m.cancelSending = cancel
+
+		go func() {
+			progressFunc := func(done, total int) {
+				if total == 0 {
+					return
+				}
+				progress := float64(done) / float64(total)
+
+				fyne.DoAndWait(func() {
+					m.progressBar.SetValue(progress)
+				})
+			}
+
+			err := m.chatClient.SendMessage(ctx, m.currentChat, text, selectedFilePath, progressFunc)
+
 			fyne.DoAndWait(func() {
-				if m.currentChat != "" {
-					m.loadCurrentChat()
+				m.progressBar.Hide()
+				m.cancelButton.Hide()
+				m.cancelSending = nil
+
+				if err != nil && !errors.Is(err, context.Canceled) {
+					dialog.ShowError(fmt.Errorf("ошибка отправки: %w", err), m.window)
+				} else {
+					m.messageInput.SetText("")
+					selectedFileLabel.SetText("")
+					selectedFilePath = ""
 				}
 			})
-		}
-	}()
+		}()
+	})
+
+	inputControls := container.NewHBox(m.attachButton, layout.NewSpacer(), m.sendButton)
+	inputBox := container.NewVBox(m.messageInput, selectedFileLabel, m.cancelButton, m.progressBar, inputControls)
+
+	// Сформировать rightPanelContent один раз
+	m.rightPanelContent = container.NewBorder(
+		nil,      // top
+		inputBox, // bottom
+		nil, nil, // left, right
+		m.chatScroll, // center
+	)
+
+	//rightScroll := container.NewVScroll(m.rightPanelContent)
+	//rightScroll.SetMinSize(fyne.NewSize(500, 0))
 
 	// Кнопки создания чата (сверху слева), настройки и темы (сверху справа)
 	// Кнопка "+" для нового чата
@@ -120,12 +219,14 @@ func (m *MainWindow) Show() {
 	)
 
 	// Собираем основной сплит
-	split := container.NewHSplit(leftScroll, rightScroll)
+	split := container.NewHSplit(leftScroll, m.rightPanelContent)
 	split.Offset = 0.3
 	body := container.New(layout.NewStackLayout(), split)
 
 	// Оверлей: topBar сверху и body по центру
 	overlay := container.NewBorder(topBar, nil, nil, nil, body)
+
+	m.refreshChatList()
 
 	// Финальный вид: фон, затемнение, overlay
 	m.window.SetContent(container.NewMax(
@@ -135,23 +236,6 @@ func (m *MainWindow) Show() {
 	))
 	m.window.Show()
 }
-
-//func (m *MainWindow) refreshChatList() {
-//	m.leftPanelContent.Objects = nil
-//
-//	for _, name := range listChatNames() {
-//		if name == "" {
-//			continue
-//		}
-//		chat := name
-//		btn := widget.NewButton(chat, func() {
-//			m.currentChat = chat
-//			m.loadCurrentChat()
-//		})
-//		m.leftPanelContent.Add(btn)
-//	}
-//	m.leftPanelContent.Refresh()
-//}
 
 func (m *MainWindow) refreshChatList() {
 	m.leftPanelContent.Objects = nil
@@ -184,6 +268,7 @@ func (m *MainWindow) refreshChatList() {
 		btn := widget.NewButton(info.Name, func() {
 			m.currentChat = roomID
 			m.loadCurrentChat()
+			m.chatScroll.ScrollToBottom()
 		})
 
 		m.leftPanelContent.Add(btn)
@@ -193,21 +278,109 @@ func (m *MainWindow) refreshChatList() {
 }
 
 func (m *MainWindow) loadCurrentChat() {
-	path := filepath.Join("cmd", "client", "chats", m.currentChat)
-	data, err := os.ReadFile(path)
+	chatPath := filepath.Join("cmd", "client", "users", m.chatClient.UserID, "chats", m.currentChat, "chat.jsonl")
+
+	data, err := os.ReadFile(chatPath)
 	if err != nil {
-		m.rightPanelContent.Objects = []fyne.CanvasObject{
+		m.chatHistory.Objects = []fyne.CanvasObject{
 			widget.NewLabel("Ошибка открытия чата: " + err.Error()),
 		}
-	} else {
-		lbl := widget.NewLabel(string(data))
-		lbl.Wrapping = fyne.TextWrapWord
-		m.rightPanelContent.Objects = []fyne.CanvasObject{lbl}
+		m.chatHistory.Refresh()
+		return
 	}
-	m.rightPanelContent.Refresh()
+
+	lines := strings.Split(string(data), "\n")
+	var messages []fyne.CanvasObject
+
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+
+		var msg domain.StoredMessage
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			continue
+		}
+
+		switch msg.Type {
+		case "text":
+			label := widget.NewLabel(fmt.Sprintf("[%s] %s: %s", msg.Timestamp.Format(time.DateTime), msg.Sender, msg.Content))
+			label.Wrapping = fyne.TextWrapWord
+			messages = append(messages, label)
+
+		case "file":
+			fileLabel := fmt.Sprintf("[%s] %s отправил файл: %s", msg.Timestamp.Format(time.DateTime), msg.Sender, msg.Filename)
+			filePath := filepath.Join(msg.Filepath)
+
+			if _, err := os.Stat(filePath); err == nil {
+				ext := strings.ToLower(filepath.Ext(filePath))
+				label := widget.NewLabel(fileLabel)
+				label.Wrapping = fyne.TextWrapWord
+
+				switch ext {
+				case ".png", ".jpg", ".jpeg", ".gif":
+					img := canvas.NewImageFromFile(filePath)
+					img.FillMode = canvas.ImageFillContain
+					img.SetMinSize(fyne.NewSize(200, 200))
+
+					tapImgObj := NewTransparentButton(func() {
+						fullImg := canvas.NewImageFromFile(filePath)
+						fullImg.FillMode = canvas.ImageFillContain
+						fullImg.SetMinSize(fyne.NewSize(600, 600))
+
+						w := fyne.CurrentApp().NewWindow(msg.Filename)
+						w.SetContent(container.NewMax(fullImg))
+						w.Resize(fyne.NewSize(800, 800))
+						w.Show()
+					})
+
+					imgWithClick := container.NewMax(img, tapImgObj)
+					messages = append(messages, label, imgWithClick)
+
+				default:
+					// Кнопка для других типов файлов
+					uri := storage.NewFileURI(filePath)
+					openBtn := widget.NewButtonWithIcon("Открыть файл", theme.FileIcon(), func() {
+						f, err := storage.OpenFileFromURI(uri)
+						if err != nil {
+							dialog.ShowError(err, m.window)
+							return
+						}
+						defer f.Close()
+
+						var openCmd *exec.Cmd
+						switch runtime.GOOS {
+						case "linux":
+							openCmd = exec.Command("xdg-open", filePath)
+						case "windows":
+							openCmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", filePath)
+						case "darwin":
+							openCmd = exec.Command("open", filePath)
+						}
+						if openCmd != nil {
+							_ = openCmd.Start()
+						}
+					})
+					openBtn.Importance = widget.LowImportance
+					openBtn.Resize(fyne.NewSize(30, 30)) // маленькая кнопка
+
+					messages = append(messages, label, openBtn)
+				}
+			} else {
+				label := widget.NewLabel(fileLabel + " (файл не найден)")
+				label.Wrapping = fyne.TextWrapWord
+				messages = append(messages, label)
+			}
+		default:
+			// Неизвестный тип сообщения — игнорируем или логируем
+		}
+	}
+
+	m.chatHistory.Objects = messages
+	m.chatHistory.Refresh()
+	m.chatScroll.ScrollToBottom()
 }
 
-// openNewChatDialog открывает диалог создания нового чата
 func (m *MainWindow) openNewChatDialog() {
 	chatNameEntry := widget.NewEntry()
 	receiverEntry := widget.NewEntry()
@@ -266,6 +439,52 @@ func (m *MainWindow) openNewChatDialog() {
 	dlg = dialog.NewCustomWithoutButtons("Создание нового чата", content, m.window)
 	dlg.Resize(fyne.NewSize(400, 400))
 	dlg.Show()
+}
+
+func (m *MainWindow) getMessages() {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			progressFunc := func(done, total int) {
+				if total == 0 {
+					return
+				}
+				progress := float64(done) / float64(total)
+				fyne.DoAndWait(func() {
+					m.progressBar.SetValue(progress)
+					m.progressBar.Show()
+				})
+			}
+
+			err := m.chatClient.ReceiveMessage(m.currentChat, progressFunc)
+			if err != nil {
+				slog.Error(err.Error())
+			} else {
+				fyne.DoAndWait(func() {
+					m.progressBar.Hide()
+					m.progressBar.SetValue(0)
+				})
+			}
+		}
+	}
+}
+
+func (m *MainWindow) refreshChat() {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if _, ok := m.chatClient.Messages.LoadAndDelete(m.currentChat); ok {
+				fyne.DoAndWait(func() {
+					m.loadCurrentChat()
+				})
+			}
+		}
+	}
 }
 
 func (m *MainWindow) checkInvitationsPeriodically() {
@@ -377,18 +596,4 @@ func (m *MainWindow) showInvitationResponseDialog(resp domain.Invitation) {
 		content,
 		m.window,
 	)
-}
-
-func listChatNames() []string {
-	dir := "./cmd/client/chats.txt"  // путь к файлу
-	content, err := os.ReadFile(dir) // читаем содержимое файла
-	if err != nil {
-		log.Println("Ошибка при чтении чатов:", err)
-		return nil
-	}
-
-	// Разбиваем содержимое файла на строки (имена чатов)
-	chatNames := strings.Split(string(content), "\n")
-
-	return chatNames
 }

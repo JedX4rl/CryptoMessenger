@@ -64,33 +64,39 @@ func (c *CipherContext) SetKey(key []byte) error {
 	return c.cipher.SetKey(key)
 }
 
-func (c *CipherContext) Encrypt(data []byte) ([]byte, error) {
+func (c *CipherContext) Encrypt(data []byte, chunkIndex, totalChunks int) ([]byte, error) {
 	if data == nil || len(data) == 0 {
 		return nil, fmt.Errorf("data cannot be empty")
 	}
 
-	dataWithPadding, err := c.addPadding(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to add padding data: %w", err)
+	var (
+		err error
+	)
+
+	if chunkIndex == totalChunks-1 {
+		data, err = c.addPadding(data)
+		if err != nil {
+			return nil, fmt.Errorf("failed to add padding data: %w", err)
+		}
 	}
 
 	var encryptedData []byte
 
 	switch c.mode {
 	case ECB:
-		encryptedData, err = c.EncryptECB(dataWithPadding)
+		encryptedData, err = c.EncryptECB(data)
 	case CBC:
-		encryptedData, err = c.EncryptCBC(dataWithPadding)
+		encryptedData, err = c.EncryptCBC(data)
 	case PCBC:
-		encryptedData, err = c.EncryptPCBC(dataWithPadding)
+		encryptedData, err = c.EncryptPCBC(data)
 	case CFB:
-		encryptedData, err = c.EncryptCFB(dataWithPadding)
+		encryptedData, err = c.EncryptCFB(data)
 	case OFB:
-		encryptedData, err = c.EncryptOFB(dataWithPadding)
+		encryptedData, err = c.EncryptOFB(data)
 	case CTR:
-		encryptedData, err = c.EncryptCTR(dataWithPadding)
+		encryptedData, err = c.EncryptCTR(data)
 	case RandomDelta:
-		encryptedData, err = c.EncryptRandomDelta(dataWithPadding)
+		encryptedData, err = c.EncryptRandomDelta(data)
 	default:
 		err = fmt.Errorf("unsupported cipher mode: %d", c.cipher)
 	}
@@ -102,7 +108,7 @@ func (c *CipherContext) Encrypt(data []byte) ([]byte, error) {
 	return encryptedData, nil
 }
 
-func (c *CipherContext) Decrypt(data []byte) ([]byte, error) {
+func (c *CipherContext) Decrypt(data []byte, chunkIndex, totalChunks int) ([]byte, error) {
 	if data == nil || len(data) == 0 {
 		return nil, errors.New("data cannot be empty")
 	}
@@ -133,14 +139,20 @@ func (c *CipherContext) Decrypt(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to decrypt data: %w", err)
 	}
 
-	decryptedData, err = c.removePadding(decryptedData)
-	if err != nil {
-		return nil, fmt.Errorf("failed to remove padding data: %w", err)
+	if chunkIndex == totalChunks-1 {
+		decryptedData, err = c.removePadding(decryptedData)
+		if err != nil {
+			return nil, fmt.Errorf("failed to remove padding data: %w", err)
+		}
 	}
+	//decryptedData, err = c.removePadding(decryptedData)
+	//if err != nil {
+	//	return nil, fmt.Errorf("failed to remove padding data: %w", err)
+	//}
 	return decryptedData, nil
 }
 
-func (c *CipherContext) EncryptAsync(data []byte) (<-chan []byte, <-chan error) {
+func (c *CipherContext) EncryptAsync(data []byte, chunkIndex, totalChunks int) (<-chan []byte, <-chan error) {
 	resultChan := make(chan []byte, 1)
 	errorChan := make(chan error, 1)
 
@@ -148,7 +160,7 @@ func (c *CipherContext) EncryptAsync(data []byte) (<-chan []byte, <-chan error) 
 		defer close(resultChan)
 		defer close(errorChan)
 
-		encrypted, err := c.Encrypt(data)
+		encrypted, err := c.Encrypt(data, chunkIndex, totalChunks)
 		if err != nil {
 			errorChan <- err
 			return
@@ -159,7 +171,7 @@ func (c *CipherContext) EncryptAsync(data []byte) (<-chan []byte, <-chan error) 
 	return resultChan, errorChan
 }
 
-func (c *CipherContext) DecryptAsync(data []byte) (<-chan []byte, <-chan error) {
+func (c *CipherContext) DecryptAsync(data []byte, chunkIndex, totalChunks int) (<-chan []byte, <-chan error) {
 	resultChan := make(chan []byte, 1)
 	errorChan := make(chan error, 1)
 
@@ -167,7 +179,7 @@ func (c *CipherContext) DecryptAsync(data []byte) (<-chan []byte, <-chan error) 
 		defer close(resultChan)
 		defer close(errorChan)
 
-		decrypted, err := c.Decrypt(data)
+		decrypted, err := c.Decrypt(data, chunkIndex, totalChunks)
 		if err != nil {
 			errorChan <- err
 			return

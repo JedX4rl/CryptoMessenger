@@ -32,7 +32,7 @@ const (
 	ChatService_ReceiveInvitation_FullMethodName         = "/chat.ChatService/ReceiveInvitation"
 	ChatService_ReactToInvitation_FullMethodName         = "/chat.ChatService/ReactToInvitation"
 	ChatService_ReceiveInvitationReaction_FullMethodName = "/chat.ChatService/ReceiveInvitationReaction"
-	ChatService_AckInvite_FullMethodName                 = "/chat.ChatService/AckInvite"
+	ChatService_AckEvent_FullMethodName                  = "/chat.ChatService/AckEvent"
 )
 
 // ChatServiceClient is the client API for ChatService service.
@@ -45,13 +45,13 @@ type ChatServiceClient interface {
 	CloseRoom(ctx context.Context, in *CloseRoomRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	JoinRoom(ctx context.Context, in *JoinRoomRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	LeaveRoom(ctx context.Context, in *LeaveRoomRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	SendMessage(ctx context.Context, in *SendMessageRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
-	ReceiveMessage(ctx context.Context, in *ReceiveMessagesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReceiveMessagesResponse], error)
+	SendMessage(ctx context.Context, in *ChatMessage, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	ReceiveMessage(ctx context.Context, in *ReceiveMessagesRequest, opts ...grpc.CallOption) (*ChatMessage, error)
 	InviteUser(ctx context.Context, in *Invitation, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	ReceiveInvitation(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*Invitation, error)
 	ReactToInvitation(ctx context.Context, in *InvitationReaction, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	ReceiveInvitationReaction(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*InvitationReaction, error)
-	AckInvite(ctx context.Context, in *AckRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	AckEvent(ctx context.Context, in *AckRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
 type chatServiceClient struct {
@@ -122,7 +122,7 @@ func (c *chatServiceClient) LeaveRoom(ctx context.Context, in *LeaveRoomRequest,
 	return out, nil
 }
 
-func (c *chatServiceClient) SendMessage(ctx context.Context, in *SendMessageRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (c *chatServiceClient) SendMessage(ctx context.Context, in *ChatMessage, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, ChatService_SendMessage_FullMethodName, in, out, cOpts...)
@@ -132,24 +132,15 @@ func (c *chatServiceClient) SendMessage(ctx context.Context, in *SendMessageRequ
 	return out, nil
 }
 
-func (c *chatServiceClient) ReceiveMessage(ctx context.Context, in *ReceiveMessagesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ReceiveMessagesResponse], error) {
+func (c *chatServiceClient) ReceiveMessage(ctx context.Context, in *ReceiveMessagesRequest, opts ...grpc.CallOption) (*ChatMessage, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &ChatService_ServiceDesc.Streams[0], ChatService_ReceiveMessage_FullMethodName, cOpts...)
+	out := new(ChatMessage)
+	err := c.cc.Invoke(ctx, ChatService_ReceiveMessage_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[ReceiveMessagesRequest, ReceiveMessagesResponse]{ClientStream: stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
+	return out, nil
 }
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ChatService_ReceiveMessageClient = grpc.ServerStreamingClient[ReceiveMessagesResponse]
 
 func (c *chatServiceClient) InviteUser(ctx context.Context, in *Invitation, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
@@ -191,10 +182,10 @@ func (c *chatServiceClient) ReceiveInvitationReaction(ctx context.Context, in *e
 	return out, nil
 }
 
-func (c *chatServiceClient) AckInvite(ctx context.Context, in *AckRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+func (c *chatServiceClient) AckEvent(ctx context.Context, in *AckRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
-	err := c.cc.Invoke(ctx, ChatService_AckInvite_FullMethodName, in, out, cOpts...)
+	err := c.cc.Invoke(ctx, ChatService_AckEvent_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -211,13 +202,13 @@ type ChatServiceServer interface {
 	CloseRoom(context.Context, *CloseRoomRequest) (*emptypb.Empty, error)
 	JoinRoom(context.Context, *JoinRoomRequest) (*emptypb.Empty, error)
 	LeaveRoom(context.Context, *LeaveRoomRequest) (*emptypb.Empty, error)
-	SendMessage(context.Context, *SendMessageRequest) (*emptypb.Empty, error)
-	ReceiveMessage(*ReceiveMessagesRequest, grpc.ServerStreamingServer[ReceiveMessagesResponse]) error
+	SendMessage(context.Context, *ChatMessage) (*emptypb.Empty, error)
+	ReceiveMessage(context.Context, *ReceiveMessagesRequest) (*ChatMessage, error)
 	InviteUser(context.Context, *Invitation) (*emptypb.Empty, error)
 	ReceiveInvitation(context.Context, *emptypb.Empty) (*Invitation, error)
 	ReactToInvitation(context.Context, *InvitationReaction) (*emptypb.Empty, error)
 	ReceiveInvitationReaction(context.Context, *emptypb.Empty) (*InvitationReaction, error)
-	AckInvite(context.Context, *AckRequest) (*emptypb.Empty, error)
+	AckEvent(context.Context, *AckRequest) (*emptypb.Empty, error)
 	mustEmbedUnimplementedChatServiceServer()
 }
 
@@ -246,11 +237,11 @@ func (UnimplementedChatServiceServer) JoinRoom(context.Context, *JoinRoomRequest
 func (UnimplementedChatServiceServer) LeaveRoom(context.Context, *LeaveRoomRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method LeaveRoom not implemented")
 }
-func (UnimplementedChatServiceServer) SendMessage(context.Context, *SendMessageRequest) (*emptypb.Empty, error) {
+func (UnimplementedChatServiceServer) SendMessage(context.Context, *ChatMessage) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendMessage not implemented")
 }
-func (UnimplementedChatServiceServer) ReceiveMessage(*ReceiveMessagesRequest, grpc.ServerStreamingServer[ReceiveMessagesResponse]) error {
-	return status.Errorf(codes.Unimplemented, "method ReceiveMessage not implemented")
+func (UnimplementedChatServiceServer) ReceiveMessage(context.Context, *ReceiveMessagesRequest) (*ChatMessage, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReceiveMessage not implemented")
 }
 func (UnimplementedChatServiceServer) InviteUser(context.Context, *Invitation) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InviteUser not implemented")
@@ -264,8 +255,8 @@ func (UnimplementedChatServiceServer) ReactToInvitation(context.Context, *Invita
 func (UnimplementedChatServiceServer) ReceiveInvitationReaction(context.Context, *emptypb.Empty) (*InvitationReaction, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReceiveInvitationReaction not implemented")
 }
-func (UnimplementedChatServiceServer) AckInvite(context.Context, *AckRequest) (*emptypb.Empty, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method AckInvite not implemented")
+func (UnimplementedChatServiceServer) AckEvent(context.Context, *AckRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AckEvent not implemented")
 }
 func (UnimplementedChatServiceServer) mustEmbedUnimplementedChatServiceServer() {}
 func (UnimplementedChatServiceServer) testEmbeddedByValue()                     {}
@@ -397,7 +388,7 @@ func _ChatService_LeaveRoom_Handler(srv interface{}, ctx context.Context, dec fu
 }
 
 func _ChatService_SendMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SendMessageRequest)
+	in := new(ChatMessage)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -409,21 +400,28 @@ func _ChatService_SendMessage_Handler(srv interface{}, ctx context.Context, dec 
 		FullMethod: ChatService_SendMessage_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ChatServiceServer).SendMessage(ctx, req.(*SendMessageRequest))
+		return srv.(ChatServiceServer).SendMessage(ctx, req.(*ChatMessage))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ChatService_ReceiveMessage_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(ReceiveMessagesRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
+func _ChatService_ReceiveMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReceiveMessagesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
 	}
-	return srv.(ChatServiceServer).ReceiveMessage(m, &grpc.GenericServerStream[ReceiveMessagesRequest, ReceiveMessagesResponse]{ServerStream: stream})
+	if interceptor == nil {
+		return srv.(ChatServiceServer).ReceiveMessage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChatService_ReceiveMessage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChatServiceServer).ReceiveMessage(ctx, req.(*ReceiveMessagesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type ChatService_ReceiveMessageServer = grpc.ServerStreamingServer[ReceiveMessagesResponse]
 
 func _ChatService_InviteUser_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(Invitation)
@@ -497,20 +495,20 @@ func _ChatService_ReceiveInvitationReaction_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ChatService_AckInvite_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _ChatService_AckEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AckRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ChatServiceServer).AckInvite(ctx, in)
+		return srv.(ChatServiceServer).AckEvent(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ChatService_AckInvite_FullMethodName,
+		FullMethod: ChatService_AckEvent_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ChatServiceServer).AckInvite(ctx, req.(*AckRequest))
+		return srv.(ChatServiceServer).AckEvent(ctx, req.(*AckRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -551,6 +549,10 @@ var ChatService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ChatService_SendMessage_Handler,
 		},
 		{
+			MethodName: "ReceiveMessage",
+			Handler:    _ChatService_ReceiveMessage_Handler,
+		},
+		{
 			MethodName: "InviteUser",
 			Handler:    _ChatService_InviteUser_Handler,
 		},
@@ -567,16 +569,10 @@ var ChatService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ChatService_ReceiveInvitationReaction_Handler,
 		},
 		{
-			MethodName: "AckInvite",
-			Handler:    _ChatService_AckInvite_Handler,
+			MethodName: "AckEvent",
+			Handler:    _ChatService_AckEvent_Handler,
 		},
 	},
-	Streams: []grpc.StreamDesc{
-		{
-			StreamName:    "ReceiveMessage",
-			Handler:       _ChatService_ReceiveMessage_Handler,
-			ServerStreams: true,
-		},
-	},
+	Streams:  []grpc.StreamDesc{},
 	Metadata: "chat.proto",
 }

@@ -2,38 +2,47 @@ package grpc_client
 
 import (
 	dh "CryptoMessenger/algorithm/diffie_hellman"
+	"CryptoMessenger/algorithm/rc5"
+	"CryptoMessenger/algorithm/rc6"
+	"CryptoMessenger/algorithm/symmetric"
 	"CryptoMessenger/cmd/client/domain"
+	"CryptoMessenger/cmd/client/pkg"
 	pb "CryptoMessenger/proto/chatpb"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
+	"io"
 	"io/ioutil"
 	"log"
 	"log/slog"
 	"math/big"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
 
 type ChatClient struct {
-	conn         *grpc.ClientConn
-	client       pb.ChatServiceClient
-	username     string
-	UserID       string
-	authToken    string
-	privateKeys  sync.Map
-	Invitations  sync.Map
-	diffieParams sync.Map
-	CipherKeys   sync.Map
+	conn          *grpc.ClientConn
+	client        pb.ChatServiceClient
+	Messages      sync.Map
+	username      string
+	UserID        string
+	authToken     string
+	CipherContext sync.Map
 }
 
 func NewChatClient(serverAddr string) (*ChatClient, error) {
@@ -42,8 +51,10 @@ func NewChatClient(serverAddr string) (*ChatClient, error) {
 		return nil, err
 	}
 	return &ChatClient{
-		conn:   conn,
-		client: pb.NewChatServiceClient(conn),
+		conn:          conn,
+		client:        pb.NewChatServiceClient(conn),
+		Messages:      sync.Map{},
+		CipherContext: sync.Map{},
 	}, nil
 }
 
@@ -51,7 +62,6 @@ func (c *ChatClient) Close() error {
 	return c.conn.Close()
 }
 
-// RegisterUser вызывает RPC RegisterUser
 func (c *ChatClient) RegisterUser(username, password string) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
@@ -108,7 +118,6 @@ func (c *ChatClient) LoadUserName() error {
 	return nil
 }
 
-// LoginUser аналогично
 func (c *ChatClient) LoginUser(username, password string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
@@ -129,12 +138,22 @@ func (c *ChatClient) CreateChat(info domain.Chat) error {
 	ctx, cancel := context.WithTimeout(c.AuthenticatedContext(), time.Second*3)
 	defer cancel()
 
+	if info.Receiver == c.username {
+		return errors.New("creating a chat with yourself is not allowed")
+	}
+
 	dhParams, err := c.generateDHParams(2048)
 	if err != nil {
 		return err
 	}
 
-	slog.Info("%v", dhParams)
+	iv := make([]byte, 16)
+	_, err = rand.Read(iv)
+	if err != nil {
+		return fmt.Errorf("could not generate IV: %w", err)
+	}
+
+	info.IV = hex.EncodeToString(iv)
 
 	roomID, err := c.createAndInvite(ctx, info, dhParams)
 	if err != nil {
@@ -162,6 +181,7 @@ func (c *ChatClient) CreateChat(info domain.Chat) error {
 }
 
 func (c *ChatClient) createAndInvite(ctx context.Context, info domain.Chat, params *domain.DiffieHellmanParams) (string, error) {
+
 	resp, err := c.client.CreateRoom(ctx, &pb.CreateRoomRequest{
 		RoomName:    info.ChatName,
 		Algorithm:   info.Algorithm,
@@ -175,8 +195,6 @@ func (c *ChatClient) createAndInvite(ctx context.Context, info domain.Chat, para
 		return "", fmt.Errorf("could not create room: %w", err)
 	}
 	roomID := resp.RoomId
-
-	//c.diffieParams.Store(roomID, *params)
 
 	_, err = c.client.InviteUser(ctx, &pb.Invitation{
 		ReceiverName: info.Receiver,
@@ -199,15 +217,22 @@ func (c *ChatClient) createAndInvite(ctx context.Context, info domain.Chat, para
 }
 
 func (c *ChatClient) saveRoomInfo(roomInfo domain.RoomInfo) error {
-
 	dir := filepath.Join("cmd", "client", "users", c.UserID, "chats", roomInfo.ID)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("could not create dir %s: %w", dir, err)
 	}
-	filePath := filepath.Join(dir, "room_info.json")
-	f, err := os.Create(filePath)
+
+	chatPath := filepath.Join(dir, "chat.jsonl")
+	f, err := os.Create(chatPath)
 	if err != nil {
-		return fmt.Errorf("could not create file %s: %w", filePath, err)
+		return fmt.Errorf("could not create file %s: %w", chatPath, err)
+	}
+	defer f.Close()
+
+	roomInfoPath := filepath.Join(dir, "room_info.json")
+	f, err = os.Create(roomInfoPath)
+	if err != nil {
+		return fmt.Errorf("could not create file %s: %w", roomInfoPath, err)
 	}
 	defer f.Close()
 
@@ -258,7 +283,7 @@ func (c *ChatClient) ReceiveInvitation() (domain.Invitation, error) {
 
 	err = c.saveRoomInfo(roomInfo)
 
-	_, err = c.client.AckInvite(ctx, &pb.AckRequest{MessageId: invitation.MessageId})
+	_, err = c.client.AckEvent(ctx, &pb.AckRequest{MessageId: invitation.MessageId})
 	if err != nil {
 		log.Printf("could not ack invitation: %v", err)
 		return domain.Invitation{}, err
@@ -283,19 +308,12 @@ func (c *ChatClient) ReactToInvitation(invitation domain.Invitation, accepted bo
 			return fmt.Errorf("could not load DH params: %w", err)
 		}
 
-		slog.Info("Got params", params)
-
 		privateKey, err := dh.GeneratePrivateKey(params.Prime)
 		if err != nil {
 			return fmt.Errorf("could not generate private key: %v", err)
 		}
 
-		slog.Info("Got private key", privateKey)
-
-		//c.diffieParams.Store(invitation.RoomID, domain.DiffieHellmanParams{Prime: receivedPrime, G: receivedG, OtherPublicKey: receivedPublicKey, PrivateKey: privateKey})
-
 		cipherKey := dh.GenerateSharedKey(privateKey, params.OtherPublicKey, params.Prime)
-		//c.CipherKeys.Store(invitation.RoomID, cipherKey)
 
 		publicKey = dh.GeneratePublicKey(params.G, privateKey, params.Prime)
 
@@ -337,7 +355,7 @@ func (c *ChatClient) ReceiveInvitationResponse() (domain.Invitation, error) {
 
 	slog.Info("Got reaction: %v", reaction)
 
-	_, err = c.client.AckInvite(ctx, &pb.AckRequest{MessageId: reaction.MessageId})
+	_, err = c.client.AckEvent(ctx, &pb.AckRequest{MessageId: reaction.MessageId})
 	if err != nil {
 		log.Printf("could not ack invitation: %v", err)
 		return domain.Invitation{}, err
@@ -390,48 +408,299 @@ func (c *ChatClient) generateDHParams(bits int) (*domain.DiffieHellmanParams, er
 	}, nil
 }
 
-func (c *ChatClient) sendMessage(roomID, text string, filepath string) error {
-	ctx, cancel := context.WithTimeout(c.AuthenticatedContext(), time.Second*4)
+func (c *ChatClient) SendMessage(cancelContext context.Context, roomID, text, filePath string, progressFunc func(done, total int)) error {
+	ctx, cancel := context.WithTimeout(c.AuthenticatedContext(), 8*time.Second)
 	defer cancel()
-	info, err := c.loadRoomInfoFromDisk(roomID)
-	if err != nil {
-		return fmt.Errorf("could not load room info: %w", err)
+
+	if text == "" && filePath == "" {
+		return fmt.Errorf("must provide either text or filePath")
 	}
 
-	//TODO зашифровать сообщение + отправлять кусками в натс, но как?
+	info, err := c.loadRoomInfoFromDisk(roomID)
+	if err != nil {
+		return fmt.Errorf("could not load room info from disk: %w", err)
+	}
 
-	_, err := c.client.SendMessage(ctx, &pb.SendMessageRequest{RoomId: roomID, ReceiverName: info.Companion, EncryptedMessage: []ecrypted, MessageType: "smth"})
+	var cipherContext *symmetric.CipherContext
 
-	//сообщение пришло, ошибки нет, упаковываем его в папку с диалогом
+	cipherCtxRaw, ok := c.CipherContext.Load(roomID)
+	if !ok {
+		cipherContext, err = c.newRoomCipher(info)
+		if err != nil {
+			return fmt.Errorf("could not create cipher context: %w", err)
+		}
+		c.CipherContext.Store(roomID, cipherContext)
+	} else {
+		cipherContext, ok = cipherCtxRaw.(*symmetric.CipherContext)
+		if !ok {
+			return fmt.Errorf("invalid cipher context type for room %s", roomID)
+		}
+	}
+
+	messageID := uuid.New().String()
+	timestamp := time.Now()
+
+	var storedMsg domain.StoredMessage
+
+	if text != "" {
+		byteText, err := cipherContext.Encrypt([]byte(text), 0, 1)
+		if err != nil {
+			return fmt.Errorf("could not encrypt message: %w", err)
+		}
+		_, err = c.client.SendMessage(ctx, &pb.ChatMessage{
+			MessageId:    messageID,
+			ChatId:       roomID,
+			ReceiverName: info.Companion,
+			Timestamp:    timestamppb.New(timestamp),
+			Payload: &pb.ChatMessage_Text{
+				Text: &pb.TextPayload{
+					Content: base64.StdEncoding.EncodeToString(byteText),
+				},
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("sending text message: %w", err)
+		}
+
+		storedMsg = domain.StoredMessage{
+			MessageID: messageID,
+			Sender:    info.MyClient,
+			Type:      "text",
+			Content:   text,
+			Timestamp: timestamp,
+		}
+
+		if err = c.appendToChatFile(roomID, storedMsg); err != nil {
+			return fmt.Errorf("save to chat file: %w", err)
+		}
+
+		c.Messages.Store(info.ID, struct{}{})
+	}
+
+	if filePath != "" {
+		encryptedPath := filepath.Join(filepath.Dir(filePath), "encrypted_"+filepath.Base(filePath))
+		if err := cipherContext.EncryptFile(cancelContext, filePath, encryptedPath, progressFunc); err != nil {
+			return fmt.Errorf("could not encrypt file: %w", err)
+		}
+
+		encryptedFile, err := os.Open(encryptedPath)
+		if err != nil {
+			return fmt.Errorf("open encrypted file: %w", err)
+		}
+		defer encryptedFile.Close()
+
+		infoStat, err := encryptedFile.Stat()
+		if err != nil {
+			return fmt.Errorf("stat encrypted file: %w", err)
+		}
+		fileSize := infoStat.Size()
+		const chunkSize = 1024 * 256 // 256KB
+		totalChunks := int((fileSize + chunkSize - 1) / chunkSize)
+
+		filename := filepath.Base(filePath)
+		fileID := uuid.New().String()
+		messageID = uuid.New().String()
+
+		for i := 0; ; i++ {
+			buf := make([]byte, chunkSize)
+			n, err := encryptedFile.Read(buf)
+			if err != nil && err != io.EOF {
+				return fmt.Errorf("read encrypted chunk: %w", err)
+			}
+			if n == 0 {
+				break
+			}
+			slog.Error("sent chunk:", i, totalChunks)
+
+			if _, err = c.client.SendMessage(ctx, &pb.ChatMessage{
+				MessageId:    uuid.New().String(),
+				ChatId:       roomID,
+				ReceiverName: info.Companion,
+				Timestamp:    timestamppb.New(timestamp),
+				Payload: &pb.ChatMessage_Chunk{
+					Chunk: &pb.FileChunk{
+						FileId:      fileID,
+						Filename:    filename,
+						ChunkIndex:  int32(i),
+						TotalChunks: int32(totalChunks),
+						ChunkData:   buf[:n],
+					},
+				},
+			}); err != nil {
+				return fmt.Errorf("sending file chunk %d: %w", i, err)
+			}
+		}
+
+		storedMsg = domain.StoredMessage{
+			MessageID:   messageID,
+			Sender:      info.MyClient,
+			Type:        "file",
+			Filename:    filename,
+			Filepath:    filePath,
+			TotalChunks: totalChunks,
+			Timestamp:   timestamp,
+		}
+
+		if err = c.appendToChatFile(roomID, storedMsg); err != nil {
+			return fmt.Errorf("save to chat file: %w", err)
+		}
+
+		c.Messages.Store(info.ID, struct{}{})
+
+	}
+
+	return nil
 }
 
-func (c *ChatClient) receiveMessage(roomID string) error {
-	ctx, cancel := context.WithTimeout(c.AuthenticatedContext(), time.Second*4)
+func (c *ChatClient) ReceiveMessage(roomID string, progressFunc func(done, total int)) error {
+	ctx, cancel := context.WithTimeout(c.AuthenticatedContext(), 10*time.Second)
 	defer cancel()
-	info, err := c.loadRoomInfoFromDisk(roomID)
+
+	resp, err := c.client.ReceiveMessage(ctx, &pb.ReceiveMessagesRequest{
+		ChatId: roomID,
+		UserId: c.UserID,
+	})
 	if err != nil {
-		return fmt.Errorf("could not load room info: %w", err)
+		st, ok := status.FromError(err)
+		if ok && st.Code() == codes.NotFound {
+			return nil
+		}
+		if errors.Is(err, ctx.Err()) {
+			return nil
+		}
+		return fmt.Errorf("receive message: %w", err)
 	}
 
-	_, err := c.client.ReceiveMessage(ctx, &pb.ReceiveMessagesRequest{RoomId: roomID})
+	info, err := c.loadRoomInfoFromDisk(roomID)
+	if err != nil {
+		return fmt.Errorf("could not load room info from disk: %w", err)
+	}
 
-	если ошибки нет, расшифровываем
+	var cipherContext *symmetric.CipherContext
 
-	//сообщение пришло, ошибки нет, упаковываем его в папку с диалогом
+	cipherCtxRaw, ok := c.CipherContext.Load(roomID)
+	if !ok {
+		cipherContext, err = c.newRoomCipher(info)
+		if err != nil {
+			return fmt.Errorf("could not create cipher context: %w", err)
+		}
+		c.CipherContext.Store(roomID, cipherContext)
+	} else {
+		cipherContext, ok = cipherCtxRaw.(*symmetric.CipherContext)
+		if !ok {
+			return fmt.Errorf("invalid cipher context type for room %s", roomID)
+		}
+	}
+
+	timestamp := resp.Timestamp.AsTime()
+	messageID := resp.MessageId
+
+	switch payload := resp.Payload.(type) {
+
+	case *pb.ChatMessage_Text:
+		cipherBytes, err := base64.StdEncoding.DecodeString(payload.Text.Content)
+		if err != nil {
+			return fmt.Errorf("invalid base64 ciphertext: %w", err)
+		}
+
+		byteText, err := cipherContext.Decrypt(cipherBytes, 0, 1)
+		if err != nil {
+			return fmt.Errorf("could not decrypt message: %w", err)
+		}
+
+		storedMsg := domain.StoredMessage{
+			MessageID: messageID,
+			Sender:    resp.SenderName,
+			Type:      "text",
+			Content:   string(byteText),
+			Timestamp: timestamp,
+		}
+		if err := c.appendToChatFile(roomID, storedMsg); err != nil {
+			return fmt.Errorf("write to chat file: %w", err)
+		}
+
+	case *pb.ChatMessage_Chunk:
+		slog.Error("Got chunk", payload.Chunk.ChunkIndex, payload.Chunk.TotalChunks)
+		dirPath := filepath.Join("cmd/client", "users", c.UserID, "chats", roomID, "files")
+		if err := os.MkdirAll(dirPath, 0755); err != nil {
+			return fmt.Errorf("mkdir for files: %w", err)
+		}
+
+		tempFileName := fmt.Sprintf("%s.part", payload.Chunk.FileId)
+		tempFilePath := filepath.Join(dirPath, tempFileName)
+
+		f, err := os.OpenFile(tempFilePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			return fmt.Errorf("open file for chunk: %w", err)
+		}
+		defer f.Close()
+
+		if _, err := f.Write(payload.Chunk.ChunkData); err != nil {
+			return fmt.Errorf("write chunk: %w", err)
+		}
+
+		if int(payload.Chunk.ChunkIndex) == int(payload.Chunk.TotalChunks)-1 {
+			slog.Error("Here now")
+			finalFilePath := filepath.Join(dirPath, payload.Chunk.Filename)
+			decryptedFile, err := os.Create(finalFilePath)
+			if err != nil {
+				return fmt.Errorf("create encrypted file: %w", err)
+			}
+			defer decryptedFile.Close()
+
+			if err = cipherContext.DecryptFile(tempFilePath, finalFilePath, progressFunc); err != nil {
+				return fmt.Errorf("could not encrypt file: %w", err)
+			}
+
+			storedMsg := domain.StoredMessage{
+				MessageID:   messageID,
+				Sender:      resp.SenderName,
+				Type:        "file",
+				Filename:    payload.Chunk.Filename,
+				Filepath:    finalFilePath,
+				TotalChunks: int(payload.Chunk.TotalChunks),
+				Timestamp:   timestamp,
+			}
+
+			if err = c.appendToChatFile(roomID, storedMsg); err != nil {
+				return fmt.Errorf("write to chat file: %w", err)
+			}
+		}
+	default:
+		return fmt.Errorf("unknown message payload")
+	}
+
+	if _, err = c.client.AckEvent(ctx, &pb.AckRequest{MessageId: messageID}); err != nil {
+		return fmt.Errorf("ack event: %w", err)
+	}
+
+	c.Messages.Store(resp.ChatId, struct{}{})
+
+	return nil
+}
+
+func (c *ChatClient) appendToChatFile(chatID string, msg domain.StoredMessage) error {
+	path := fmt.Sprintf("cmd/client/users/%s/chats/%s/chat.jsonl",
+		c.UserID, chatID)
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("open chat file: %w", err)
+	}
+	defer f.Close()
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal message: %w", err)
+	}
+
+	if _, err = f.Write(append(data, '\n')); err != nil {
+		return fmt.Errorf("write message: %w", err)
+	}
+	return nil
 }
 
 func (c *ChatClient) loadDHParamsFromDisk(roomID string, myClient bool) (*domain.DiffieHellmanParams, error) {
-	//path := filepath.Join("cmd", "client", "users", c.UserID, "chats", roomID, "room_info.json")
-	//data, err := ioutil.ReadFile(path)
-	//if err != nil {
-	//	return nil, fmt.Errorf("could not read room_info.json: %w", err)
-	//}
-	//
-	//var info domain.RoomInfo
-	//if err = json.Unmarshal(data, &info); err != nil {
-	//	return nil, fmt.Errorf("invalid JSON in room_info.json: %w", err)
-	//}
-
 	info, err := c.loadRoomInfoFromDisk(roomID)
 	if err != nil {
 		return nil, fmt.Errorf("could not load room_info: %w", err)
@@ -523,4 +792,63 @@ func (c *ChatClient) AuthenticatedContext() context.Context {
 		"authorization": "Bearer " + c.authToken,
 	})
 	return metadata.NewOutgoingContext(context.Background(), md)
+}
+
+func (c *ChatClient) newRoomCipher(info domain.RoomInfo) (*symmetric.CipherContext, error) {
+	tmp, err := hex.DecodeString(info.CipherKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid hex cipher key: %w", err)
+	}
+
+	key := make([]byte, 64)
+	copy(key, tmp)
+
+	iv, err := hex.DecodeString(info.IV)
+	if err != nil {
+		return nil, fmt.Errorf("invalid IV hex: %w", err)
+	}
+
+	var cipher symmetric.CipherScheme
+	var blockSize int
+	switch strings.ToUpper(info.Algorithm) {
+	case "RC5":
+		cipher, err = rc5.NewRC5(64, 12, uint(len(key)), key)
+		if err != nil {
+			slog.Error("could not create RC5 block cipher: %w", err)
+			return nil, err
+		}
+		blockSize = 16
+	case "RC6":
+		cipher, err = rc6.NewRC6(key)
+		if err != nil {
+			slog.Error("could not create RC6 block cipher: %w", err)
+			return nil, err
+		}
+		blockSize = 16
+	default:
+		return nil, fmt.Errorf("unsupported algorithm: %s", info.Algorithm)
+	}
+
+	mode, err := pkg.ParseCipherMode(info.CipherMode)
+	if err != nil {
+		return nil, err
+	}
+
+	padding, err := pkg.ParsePaddingMode(info.Padding)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx, err := symmetric.NewCipherContext(
+		key,
+		cipher,
+		mode,
+		padding,
+		iv,
+		blockSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return ctx, nil
 }

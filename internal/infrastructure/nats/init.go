@@ -19,10 +19,10 @@ const (
 	StreamName                   = "CHAT"
 	InvitesSubjectPrefix         = "chat.invite.%s"
 	InvitesReactionSubjectPrefix = "chat.invite.reaction.%s"
-	MessagesSubjectPrefix        = "chat.messages.%s"
+	MessagesSubjectPrefix        = "chat.messages.%s.%s"
 	InvitesConsumerName          = "invite_consumer_%s"
 	InviteReactionsConsumerName  = "invite_reactions_consumer_%s"
-	MessagesConsumerName         = "message_consumer_%s"
+	MessagesConsumerName         = "message_consumer_%s_%s"
 )
 
 type JSClient struct {
@@ -103,16 +103,22 @@ func (c *JSClient) EnsureInviteReactionsConsumer(userID string) error {
 	return nil
 }
 
-func (c *JSClient) EnsureMessagesConsumer(userID string) error {
-	consumerName := fmt.Sprintf(MessagesConsumerName, userID)
+func (c *JSClient) EnsureMessagesConsumer(userID, chatID string) error {
+	consumerName := fmt.Sprintf(MessagesConsumerName, chatID, userID)
+	subject := fmt.Sprintf(MessagesSubjectPrefix, chatID, userID)
+
+	if userID == "904d9fb3-4e71-41d2-bd66-a36f7cb237bb" {
+		a := 4
+		_ = a
+	}
 
 	_, err := c.JS.AddConsumer(StreamName, &nats.ConsumerConfig{
 		Durable:       consumerName,
-		FilterSubject: fmt.Sprintf(MessagesSubjectPrefix, userID),
+		FilterSubject: subject,
 		AckPolicy:     nats.AckExplicitPolicy,
 		AckWait:       5 * time.Second,
 		MaxDeliver:    3,
-		DeliverPolicy: nats.DeliverNewPolicy,
+		DeliverPolicy: nats.DeliverAllPolicy,
 		ReplayPolicy:  nats.ReplayInstantPolicy,
 	})
 
@@ -158,20 +164,59 @@ func (c *JSClient) PublishInvitationReaction(ctx context.Context, message domain
 	return nil
 }
 
-func (c *JSClient) PublishMessage(msg *InvitationMessage) error {
+func (c *JSClient) PublishChatMessage(ctx context.Context, msg *domain.ChatMessage) error {
+	subject := fmt.Sprintf(MessagesSubjectPrefix, msg.ChatID, msg.ReceiverID)
+
+	slog.Info("trying to publish chat message", msg)
+
 	data, err := json.Marshal(msg)
 	if err != nil {
-		return fmt.Errorf("marshal error: %w", err)
+		slog.Error("failed to marshal message", err.Error(), msg)
+		return fmt.Errorf("marshal: %w", err)
 	}
 
-	subject := fmt.Sprintf(MessagesSubjectPrefix, msg.ReceiverID)
+	natsMsg := nats.NewMsg(subject)
+	natsMsg.Header.Set("Message-ID", msg.MessageID)
+	natsMsg.Data = data
 
-	_, err = c.JS.Publish(subject, data,
-		nats.MsgId(msg.MessageID),
-		nats.Context(context.Background()),
-	)
+	_, err = c.JS.PublishMsg(natsMsg, nats.MsgId(msg.MessageID), nats.Context(ctx))
+	if err != nil {
+		slog.Error("failed to publish message", err.Error(), msg)
+		return fmt.Errorf("publish: %w", err)
+	}
+	slog.Info("success")
+	return nil
+}
 
-	return err
+func (c *JSClient) FetchOneChatMessage(ctx context.Context, userID, chatID string) (domain.ChatMessage, error) {
+	subject := fmt.Sprintf(MessagesSubjectPrefix, chatID, userID)
+	consumerName := fmt.Sprintf(MessagesConsumerName, chatID, userID)
+
+	sub, err := c.JS.PullSubscribe(subject, consumerName)
+	if err != nil {
+		return domain.ChatMessage{}, fmt.Errorf("pull subscribe: %w", err)
+	}
+
+	msgs, err := sub.Fetch(1, nats.MaxWait(1*time.Second))
+
+	if err != nil && !errors.Is(err, ctx.Err()) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, nats.ErrTimeout) {
+		slog.Error("failed to fetch message: %w", err)
+		return domain.ChatMessage{}, fmt.Errorf("fetch: %w", err)
+	}
+
+	if len(msgs) == 0 {
+		return domain.ChatMessage{}, nats.ErrMsgNotFound
+	}
+
+	msg := msgs[0]
+	var chatMsg domain.ChatMessage
+	if err = json.Unmarshal(msg.Data, &chatMsg); err != nil {
+		msg.Nak()
+		return domain.ChatMessage{}, fmt.Errorf("unmarshal: %w", err)
+	}
+
+	c.pendingEvents.Store(chatMsg.MessageID, msg)
+	return chatMsg, nil
 }
 
 func (c *JSClient) AckEvent(messageID string) error {

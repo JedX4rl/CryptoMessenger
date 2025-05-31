@@ -23,6 +23,8 @@ const (
 	InvitesConsumerName          = "invite_consumer_%s"
 	InviteReactionsConsumerName  = "invite_reactions_consumer_%s"
 	MessagesConsumerName         = "message_consumer_%s_%s"
+	ClearChatSubjectPrefix       = "chat.clear.%s"
+	ClearChatConsumerName        = "clear_consumer_%s"
 )
 
 type JSClient struct {
@@ -107,10 +109,25 @@ func (c *JSClient) EnsureMessagesConsumer(userID, chatID string) error {
 	consumerName := fmt.Sprintf(MessagesConsumerName, chatID, userID)
 	subject := fmt.Sprintf(MessagesSubjectPrefix, chatID, userID)
 
-	if userID == "904d9fb3-4e71-41d2-bd66-a36f7cb237bb" {
-		a := 4
-		_ = a
+	_, err := c.JS.AddConsumer(StreamName, &nats.ConsumerConfig{
+		Durable:       consumerName,
+		FilterSubject: subject,
+		AckPolicy:     nats.AckExplicitPolicy,
+		AckWait:       5 * time.Second,
+		MaxDeliver:    3,
+		DeliverPolicy: nats.DeliverAllPolicy,
+		ReplayPolicy:  nats.ReplayInstantPolicy,
+	})
+
+	if err != nil && !isConsumerExists(err) {
+		return fmt.Errorf("failed to create consumer: %w", err)
 	}
+	return nil
+}
+
+func (c *JSClient) EnsureClearChatConsumer(userID string) error {
+	consumerName := fmt.Sprintf(ClearChatConsumerName, userID)
+	subject := fmt.Sprintf(ClearChatSubjectPrefix, userID)
 
 	_, err := c.JS.AddConsumer(StreamName, &nats.ConsumerConfig{
 		Durable:       consumerName,
@@ -194,6 +211,9 @@ func (c *JSClient) FetchOneChatMessage(ctx context.Context, userID, chatID strin
 
 	sub, err := c.JS.PullSubscribe(subject, consumerName)
 	if err != nil {
+		if errors.Is(err, nats.ErrJetStreamNotEnabled) {
+			return domain.ChatMessage{}, nats.ErrMsgNotFound
+		}
 		return domain.ChatMessage{}, fmt.Errorf("pull subscribe: %w", err)
 	}
 
@@ -217,6 +237,60 @@ func (c *JSClient) FetchOneChatMessage(ctx context.Context, userID, chatID strin
 
 	c.pendingEvents.Store(chatMsg.MessageID, msg)
 	return chatMsg, nil
+}
+
+func (c *JSClient) PublishClearChatHistoryRequest(ctx context.Context, actions domain.ChatActions) error {
+	subject := fmt.Sprintf(ClearChatSubjectPrefix, actions.UserID)
+
+	data, err := json.Marshal(actions)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+
+	natsMsg := nats.NewMsg(subject)
+	natsMsg.Header.Set("Message-ID", actions.MessageID)
+	natsMsg.Data = data
+
+	_, err = c.JS.PublishMsg(natsMsg, nats.MsgId(actions.MessageID), nats.Context(ctx))
+	if err != nil {
+		slog.Error("failed to publish message", err.Error(), actions)
+		return fmt.Errorf("publish: %w", err)
+	}
+	return nil
+}
+
+func (c *JSClient) FetchClearChatHistoryRequest(ctx context.Context, userID string) (domain.ChatActions, error) {
+	subject := fmt.Sprintf(ClearChatSubjectPrefix, userID)
+	consumerName := fmt.Sprintf(ClearChatConsumerName, userID)
+
+	sub, err := c.JS.PullSubscribe(subject, consumerName)
+	if err != nil {
+		if errors.Is(err, nats.ErrJetStreamNotEnabled) {
+			return domain.ChatActions{}, nats.ErrMsgNotFound
+		}
+		return domain.ChatActions{}, fmt.Errorf("pull subscribe: %w", err)
+	}
+
+	msgs, err := sub.Fetch(1, nats.MaxWait(1*time.Second))
+
+	if err != nil && !errors.Is(err, ctx.Err()) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, nats.ErrTimeout) {
+		slog.Error("failed to fetch message: %w", err)
+		return domain.ChatActions{}, fmt.Errorf("fetch: %w", err)
+	}
+
+	if len(msgs) == 0 {
+		return domain.ChatActions{}, nats.ErrMsgNotFound
+	}
+
+	msg := msgs[0]
+	var action domain.ChatActions
+	if err = json.Unmarshal(msg.Data, &action); err != nil {
+		msg.Nak()
+		return domain.ChatActions{}, fmt.Errorf("unmarshal: %w", err)
+	}
+
+	c.pendingEvents.Store(action.MessageID, msg)
+	return action, nil
 }
 
 func (c *JSClient) AckEvent(messageID string) error {

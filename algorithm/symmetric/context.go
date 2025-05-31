@@ -40,20 +40,23 @@ func NewCipherContext(
 
 	var paramKey string
 	if extraParams != nil {
+		if len(extraParams) != 2 {
+			return nil, errors.New("invalid size of extra params")
+		}
+
 		tmpKey, ok := extraParams[0].(string)
 		if !ok {
 			return nil, fmt.Errorf("failed to get param key")
 		}
 		paramKey = tmpKey
+
+		param, ok := extraParams[1].([]byte)
+		if !ok {
+			return nil, fmt.Errorf("failed to get param value")
+		}
+		cryptoContext.extraParams[paramKey] = param
 	}
 
-	for i := 1; i < len(extraParams); i++ {
-		param, ok := extraParams[i].(int)
-		if !ok {
-			return nil, fmt.Errorf("invalid param's value")
-		}
-		cryptoContext.extraParams[paramKey] = append(cryptoContext.extraParams[paramKey], byte(param))
-	}
 	return cryptoContext, nil
 }
 
@@ -98,7 +101,7 @@ func (c *CipherContext) Encrypt(data []byte, chunkIndex, totalChunks int) ([]byt
 	case RandomDelta:
 		encryptedData, err = c.EncryptRandomDelta(data)
 	default:
-		err = fmt.Errorf("unsupported cipher mode: %d", c.cipher)
+		err = fmt.Errorf("unsupported cipher mode: %d", c.mode)
 	}
 
 	if err != nil {
@@ -131,6 +134,8 @@ func (c *CipherContext) Decrypt(data []byte, chunkIndex, totalChunks int) ([]byt
 		decryptedData, err = c.DecryptOFB(data)
 	case CTR:
 		decryptedData, err = c.DecryptCTR(data)
+	case RandomDelta:
+		decryptedData, err = c.DecryptRandomDelta(data)
 	default:
 		err = fmt.Errorf("unsupported cipher mode: %d", c.cipher)
 	}
@@ -145,10 +150,6 @@ func (c *CipherContext) Decrypt(data []byte, chunkIndex, totalChunks int) ([]byt
 			return nil, fmt.Errorf("failed to remove padding data: %w", err)
 		}
 	}
-	//decryptedData, err = c.removePadding(decryptedData)
-	//if err != nil {
-	//	return nil, fmt.Errorf("failed to remove padding data: %w", err)
-	//}
 	return decryptedData, nil
 }
 

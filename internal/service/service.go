@@ -28,6 +28,9 @@ type Chat interface {
 	ReceiveInvitationReaction(ctx context.Context, userID string) (domain.InvitationReaction, error)
 	ReactToInvitation(ctx context.Context, reaction domain.InvitationReaction) error
 	AckEvent(messageID string) error
+	ClearChatHistory(ctx context.Context, action domain.ChatActions) error
+	ReceiveClearChatHistoryRequest(ctx context.Context, userID string) (domain.ChatActions, error)
+	UpdateOrDeleteCipherKey(ctx context.Context, action domain.ChatActions) error
 }
 
 type Service struct {

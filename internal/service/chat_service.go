@@ -143,13 +143,28 @@ func (s *ChatService) CloseRoom(ctx context.Context, roomID string) error {
 	return nil
 }
 
+func (s *ChatService) ClearChatHistory(ctx context.Context, action domain.ChatActions) error {
+	user, err := s.users.GetByUsername(ctx, action.UserName)
+	if err != nil {
+		return fmt.Errorf("user doesnt't exist: %w", err)
+	}
+	action.UserID = user.ID
+	return s.jsClient.PublishClearChatHistoryRequest(ctx, action)
+}
+
+func (s *ChatService) ReceiveClearChatHistoryRequest(ctx context.Context, userID string) (domain.ChatActions, error) {
+	return s.jsClient.FetchClearChatHistoryRequest(ctx, userID)
+}
+
+func (s *ChatService) UpdateOrDeleteCipherKey(ctx context.Context, action domain.ChatActions) error {
+	return nil
+}
+
 func (s *ChatService) JoinRoom(ctx context.Context, roomID, clientID string) error {
-	// ничего не сохраняем по ТЗ
 	return nil
 }
 
 func (s *ChatService) LeaveRoom(ctx context.Context, roomID, clientID string) error {
-	// ничего не сохраняем по ТЗ
 	return nil
 }
 
@@ -159,16 +174,13 @@ func (s *ChatService) SendInvitation(ctx context.Context, invite domain.ChatInvi
 }
 
 func (s *ChatService) SendPublicKey(ctx context.Context, roomID, clientID, pubHex string) error {
-	//return s.keys.Store(ctx, roomID, clientID, pubHex)
 	return nil
 }
 
 func (s *ChatService) GetPublicKeys(ctx context.Context, roomID string) ([]domain.PublicKey, error) {
-	//return s.keys.List(ctx, roomID)
 	return nil, nil
 }
 
 func (s *ChatService) GetRoomConfig(ctx context.Context, roomID string) (domain.RoomConfig, error) {
-	//return s.rooms.GetConfig(ctx, roomID)
 	return domain.RoomConfig{}, nil
 }

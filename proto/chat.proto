@@ -25,6 +25,11 @@ service ChatService {
   rpc ReactToInvitation(InvitationReaction) returns (google.protobuf.Empty);
   rpc ReceiveInvitationReaction(google.protobuf.Empty) returns (InvitationReaction);
 
+  rpc ClearChatHistory(ClearHistoryRequest) returns (google.protobuf.Empty);
+  rpc ReceiveChatHistoryRequest(ClearHistoryRequest) returns (ClearHistoryRequest);
+
+  rpc UpdateOrDeleteCipherKey(UpdateCipherKeyRequest) returns (google.protobuf.Empty);
+
   rpc AckEvent(AckRequest) returns (google.protobuf.Empty);
 
 }
@@ -128,18 +133,25 @@ message TextPayload {
   string content = 1; // до 256 байт
 }
 
-/*
-message FileHeader {
-  string file_id = 1;
-  string filename = 2;
-  int32 total_chunks = 3;
-}
-*/
-
 message FileChunk {
   string file_id = 1;
   string filename = 2;
   int32 chunk_index = 3;
   int32 total_chunks = 4;
   bytes chunk_data = 5;
+}
+
+message ClearHistoryRequest {
+  string user_id = 1;
+  string user_name = 2;
+  string chat_id = 3;
+  string message_id = 4;
+}
+
+message UpdateCipherKeyRequest {
+  string user_id = 1;
+  string user_name = 2;
+  string chat_id = 3;
+  string public_key = 4; //if "" - delete room
+  string message_id = 5;
 }

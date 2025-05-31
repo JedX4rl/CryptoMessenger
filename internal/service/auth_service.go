@@ -57,6 +57,10 @@ func (s *AuthService) Register(ctx context.Context, username, password string) (
 		return "", fmt.Errorf("failed to init invite reactions consumer: %w", err)
 	}
 
+	if err = s.jsClient.EnsureClearChatConsumer(uid); err != nil {
+		return "", fmt.Errorf("failed to init clear chat consumer: %w", err)
+	}
+
 	return uid, nil
 }
 

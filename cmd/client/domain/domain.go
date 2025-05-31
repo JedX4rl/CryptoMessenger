@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"errors"
 	"math/big"
 	"time"
 )
@@ -48,11 +49,13 @@ type Invitation struct {
 	Sender    string
 	Receiver  string
 	RoomID    string
+	RoomName  string
 	Prime     string
 	G         string
 	PublicKey string
 	MessageID string
 	SharedKey string
+	Accepted  bool
 }
 
 type DiffieHellmanParams struct {
@@ -73,3 +76,8 @@ type StoredMessage struct {
 	TotalChunks int       `json:"total_chunks,omitempty"`
 	Timestamp   time.Time `json:"timestamp"`
 }
+
+var (
+	EmptyFileError = errors.New("вы не можете отправить пустой файл")
+	ErrNotFound    = errors.New("не найдено")
+)

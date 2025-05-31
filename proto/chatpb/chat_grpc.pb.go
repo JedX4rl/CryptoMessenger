@@ -32,6 +32,9 @@ const (
 	ChatService_ReceiveInvitation_FullMethodName         = "/chat.ChatService/ReceiveInvitation"
 	ChatService_ReactToInvitation_FullMethodName         = "/chat.ChatService/ReactToInvitation"
 	ChatService_ReceiveInvitationReaction_FullMethodName = "/chat.ChatService/ReceiveInvitationReaction"
+	ChatService_ClearChatHistory_FullMethodName          = "/chat.ChatService/ClearChatHistory"
+	ChatService_ReceiveChatHistoryRequest_FullMethodName = "/chat.ChatService/ReceiveChatHistoryRequest"
+	ChatService_UpdateOrDeleteCipherKey_FullMethodName   = "/chat.ChatService/UpdateOrDeleteCipherKey"
 	ChatService_AckEvent_FullMethodName                  = "/chat.ChatService/AckEvent"
 )
 
@@ -51,6 +54,9 @@ type ChatServiceClient interface {
 	ReceiveInvitation(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*Invitation, error)
 	ReactToInvitation(ctx context.Context, in *InvitationReaction, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	ReceiveInvitationReaction(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*InvitationReaction, error)
+	ClearChatHistory(ctx context.Context, in *ClearHistoryRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	ReceiveChatHistoryRequest(ctx context.Context, in *ClearHistoryRequest, opts ...grpc.CallOption) (*ClearHistoryRequest, error)
+	UpdateOrDeleteCipherKey(ctx context.Context, in *UpdateCipherKeyRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	AckEvent(ctx context.Context, in *AckRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
@@ -182,6 +188,36 @@ func (c *chatServiceClient) ReceiveInvitationReaction(ctx context.Context, in *e
 	return out, nil
 }
 
+func (c *chatServiceClient) ClearChatHistory(ctx context.Context, in *ClearHistoryRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, ChatService_ClearChatHistory_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *chatServiceClient) ReceiveChatHistoryRequest(ctx context.Context, in *ClearHistoryRequest, opts ...grpc.CallOption) (*ClearHistoryRequest, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ClearHistoryRequest)
+	err := c.cc.Invoke(ctx, ChatService_ReceiveChatHistoryRequest_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *chatServiceClient) UpdateOrDeleteCipherKey(ctx context.Context, in *UpdateCipherKeyRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, ChatService_UpdateOrDeleteCipherKey_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *chatServiceClient) AckEvent(ctx context.Context, in *AckRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(emptypb.Empty)
@@ -208,6 +244,9 @@ type ChatServiceServer interface {
 	ReceiveInvitation(context.Context, *emptypb.Empty) (*Invitation, error)
 	ReactToInvitation(context.Context, *InvitationReaction) (*emptypb.Empty, error)
 	ReceiveInvitationReaction(context.Context, *emptypb.Empty) (*InvitationReaction, error)
+	ClearChatHistory(context.Context, *ClearHistoryRequest) (*emptypb.Empty, error)
+	ReceiveChatHistoryRequest(context.Context, *ClearHistoryRequest) (*ClearHistoryRequest, error)
+	UpdateOrDeleteCipherKey(context.Context, *UpdateCipherKeyRequest) (*emptypb.Empty, error)
 	AckEvent(context.Context, *AckRequest) (*emptypb.Empty, error)
 	mustEmbedUnimplementedChatServiceServer()
 }
@@ -254,6 +293,15 @@ func (UnimplementedChatServiceServer) ReactToInvitation(context.Context, *Invita
 }
 func (UnimplementedChatServiceServer) ReceiveInvitationReaction(context.Context, *emptypb.Empty) (*InvitationReaction, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReceiveInvitationReaction not implemented")
+}
+func (UnimplementedChatServiceServer) ClearChatHistory(context.Context, *ClearHistoryRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ClearChatHistory not implemented")
+}
+func (UnimplementedChatServiceServer) ReceiveChatHistoryRequest(context.Context, *ClearHistoryRequest) (*ClearHistoryRequest, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReceiveChatHistoryRequest not implemented")
+}
+func (UnimplementedChatServiceServer) UpdateOrDeleteCipherKey(context.Context, *UpdateCipherKeyRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UpdateOrDeleteCipherKey not implemented")
 }
 func (UnimplementedChatServiceServer) AckEvent(context.Context, *AckRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AckEvent not implemented")
@@ -495,6 +543,60 @@ func _ChatService_ReceiveInvitationReaction_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ChatService_ClearChatHistory_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ClearHistoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChatServiceServer).ClearChatHistory(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChatService_ClearChatHistory_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChatServiceServer).ClearChatHistory(ctx, req.(*ClearHistoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ChatService_ReceiveChatHistoryRequest_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ClearHistoryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChatServiceServer).ReceiveChatHistoryRequest(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChatService_ReceiveChatHistoryRequest_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChatServiceServer).ReceiveChatHistoryRequest(ctx, req.(*ClearHistoryRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ChatService_UpdateOrDeleteCipherKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UpdateCipherKeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChatServiceServer).UpdateOrDeleteCipherKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChatService_UpdateOrDeleteCipherKey_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChatServiceServer).UpdateOrDeleteCipherKey(ctx, req.(*UpdateCipherKeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ChatService_AckEvent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(AckRequest)
 	if err := dec(in); err != nil {
@@ -567,6 +669,18 @@ var ChatService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReceiveInvitationReaction",
 			Handler:    _ChatService_ReceiveInvitationReaction_Handler,
+		},
+		{
+			MethodName: "ClearChatHistory",
+			Handler:    _ChatService_ClearChatHistory_Handler,
+		},
+		{
+			MethodName: "ReceiveChatHistoryRequest",
+			Handler:    _ChatService_ReceiveChatHistoryRequest_Handler,
+		},
+		{
+			MethodName: "UpdateOrDeleteCipherKey",
+			Handler:    _ChatService_UpdateOrDeleteCipherKey_Handler,
 		},
 		{
 			MethodName: "AckEvent",

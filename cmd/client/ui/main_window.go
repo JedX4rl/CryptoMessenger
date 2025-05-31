@@ -30,9 +30,11 @@ type MainWindow struct {
 	window            fyne.Window
 	chatClient        *grpc_client.ChatClient
 	currentChat       string
-	userID            string
+	chatNameLabel     *widget.Label
+	userName          string
 	leftPanelContent  *fyne.Container
 	rightPanelContent *fyne.Container
+	rightEmptyBox     *fyne.Container
 	chatHistory       *fyne.Container
 	chatScroll        *container.Scroll
 	messageInput      *widget.Entry
@@ -41,13 +43,15 @@ type MainWindow struct {
 	cancelButton      *widget.Button
 	progressBar       *widget.ProgressBar
 	cancelSending     context.CancelFunc
+	onLogout          func()
 }
 
-func NewMainWindow(w fyne.Window, chatClient *grpc_client.ChatClient, userID string) *MainWindow {
+func NewMainWindow(w fyne.Window, chatClient *grpc_client.ChatClient, name string, onLogout func()) *MainWindow {
 	return &MainWindow{
 		window:     w,
 		chatClient: chatClient,
-		userID:     userID,
+		userName:   name,
+		onLogout:   onLogout,
 	}
 }
 
@@ -57,6 +61,7 @@ func (m *MainWindow) Show() {
 
 	go m.checkInvitationsPeriodically()
 	go m.checkInvitationResponsesPeriodically()
+	go m.checkClearChatRequestsPeriodically()
 	go m.getMessages()
 	go m.refreshChat()
 
@@ -69,7 +74,33 @@ func (m *MainWindow) Show() {
 	var selectedFileLabel *widget.Label
 	var selectedFilePath string
 	selectedFileLabel = widget.NewLabel("")
+	selectedFileLabel = widget.NewLabel("")
 	selectedFileLabel.Wrapping = fyne.TextTruncate
+
+	removeAttachmentButton := widget.NewButtonWithIcon("", theme.CancelIcon(), func() {
+		selectedFilePath = ""
+		selectedFileLabel.SetText("")
+	})
+	removeAttachmentButton.Importance = widget.LowImportance
+
+	attachmentBox := container.NewBorder(
+		nil, nil,
+		nil, removeAttachmentButton, // кнопка справа
+		selectedFileLabel, // сам текст по центру
+	)
+
+	welcomeText := widget.NewLabelWithStyle("Выберите чат слева", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+
+	welcomeImage := canvas.NewImageFromFile("cmd/client/ui/welcome.png")
+	welcomeImage.FillMode = canvas.ImageFillContain
+	welcomeImage.SetMinSize(fyne.NewSize(400, 300))
+
+	vbox := container.NewVBox(
+		welcomeText,
+		welcomeImage,
+	)
+
+	m.rightEmptyBox = container.NewCenter(vbox)
 
 	m.leftPanelContent = container.NewVBox()
 	//m.refreshChatList()
@@ -138,6 +169,9 @@ func (m *MainWindow) Show() {
 
 				fyne.DoAndWait(func() {
 					m.progressBar.SetValue(progress)
+					if progress >= 0.9 {
+						m.cancelButton.Hide()
+					}
 				})
 			}
 
@@ -160,7 +194,7 @@ func (m *MainWindow) Show() {
 	})
 
 	inputControls := container.NewHBox(m.attachButton, layout.NewSpacer(), m.sendButton)
-	inputBox := container.NewVBox(m.messageInput, selectedFileLabel, m.cancelButton, m.progressBar, inputControls)
+	inputBox := container.NewVBox(m.messageInput, attachmentBox, m.cancelButton, m.progressBar, inputControls)
 
 	// Сформировать rightPanelContent один раз
 	m.rightPanelContent = container.NewBorder(
@@ -170,21 +204,21 @@ func (m *MainWindow) Show() {
 		m.chatScroll, // center
 	)
 
-	//rightScroll := container.NewVScroll(m.rightPanelContent)
-	//rightScroll.SetMinSize(fyne.NewSize(500, 0))
-
-	// Кнопки создания чата (сверху слева), настройки и темы (сверху справа)
-	// Кнопка "+" для нового чата
 	createChatBtn := widget.NewButtonWithIcon("", theme.ContentAddIcon(), m.openNewChatDialog)
 	createChatBtn.Importance = widget.LowImportance
 	createChatBtn.Alignment = widget.ButtonAlignCenter
-	// Кнопка настроек
-	settingsBtn := widget.NewButtonWithIcon("", theme.SettingsIcon(), func() {
-		// логика настроек
+
+	exitBtn := widget.NewButtonWithIcon("", theme.AccountIcon(), func() {
+		if m.cancelSending != nil {
+			m.cancelSending()
+		}
+		m.window.Hide()
+		if m.onLogout != nil {
+			m.onLogout()
+		}
 	})
-	settingsBtn.Importance = widget.LowImportance
-	settingsBtn.Alignment = widget.ButtonAlignCenter
-	// Кнопка переключения темы и прозрачности фона
+	exitBtn.Importance = widget.LowImportance
+	exitBtn.Alignment = widget.ButtonAlignCenter
 	isDark := true
 
 	themeBtn := widget.NewButtonWithIcon("", theme.ColorPaletteIcon(), func() {
@@ -208,18 +242,87 @@ func (m *MainWindow) Show() {
 	updateChatsList.Importance = widget.LowImportance
 	updateChatsList.Alignment = widget.ButtonAlignCenter
 
+	m.chatNameLabel = widget.NewLabelWithStyle("", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
+
 	// Панель сверху: create слева, spacer, settings и theme справа
+
+	homeBtn := widget.NewButtonWithIcon("", theme.HomeIcon(), func() {
+		m.chatNameLabel.SetText("")
+		m.rightPanelContent.Hide()
+		m.rightEmptyBox.Show()
+	})
+	homeBtn.Importance = widget.LowImportance
+	homeBtn.Alignment = widget.ButtonAlignCenter
+
+	deleteHistoryBtn := widget.NewButtonWithIcon("", theme.DeleteIcon(), func() {
+		if m.currentChat == "" {
+			dialog.ShowError(errors.New("вы не можете удалить диалог, пока не находитесь в нем"), m.window)
+			return
+		}
+
+		var dlg dialog.Dialog // создаем переменную заранее
+
+		content := container.NewVBox(
+			widget.NewLabel("Выберите действие:"),
+			widget.NewButton("Удалить только у меня", func() {
+				go func() {
+					err := m.chatClient.ClearMyChatHistory(m.currentChat)
+					if err != nil {
+						fyne.DoAndWait(func() {
+							dialog.ShowError(err, m.window)
+						})
+						return
+					}
+					fyne.DoAndWait(func() {
+						m.chatHistory.Objects = nil
+						m.chatHistory.Refresh()
+						dlg.Hide() // закрываем диалог
+					})
+				}()
+			}),
+			widget.NewButton("Удалить у всех", func() {
+				go func() {
+					err := m.chatClient.ClearChatHistory(m.currentChat)
+					if err != nil {
+						fyne.DoAndWait(func() {
+							dialog.ShowError(err, m.window)
+						})
+						return
+					}
+					fyne.DoAndWait(func() {
+						m.chatHistory.Objects = nil
+						m.chatHistory.Refresh()
+						dlg.Hide()
+					})
+				}()
+			}),
+		)
+
+		dlg = dialog.NewCustom("Удалить историю чата", "Закрыть", content, m.window)
+		dlg.Show()
+	})
+
+	deleteHistoryBtn.Importance = widget.LowImportance
+	deleteHistoryBtn.Alignment = widget.ButtonAlignCenter
+
 	topBar := container.New(
 		layout.NewHBoxLayout(),
 		createChatBtn,
 		layout.NewSpacer(),
-		settingsBtn,
+		m.chatNameLabel,
+		layout.NewSpacer(),
+		deleteHistoryBtn,
+		homeBtn,
+		exitBtn,
 		themeBtn,
 		updateChatsList,
 	)
 
+	rightStack := container.NewStack(m.rightEmptyBox, m.rightPanelContent)
+	m.rightPanelContent.Hide()
+
 	// Собираем основной сплит
-	split := container.NewHSplit(leftScroll, m.rightPanelContent)
+	split := container.NewHSplit(leftScroll, rightStack)
 	split.Offset = 0.3
 	body := container.New(layout.NewStackLayout(), split)
 
@@ -267,14 +370,19 @@ func (m *MainWindow) refreshChatList() {
 
 		btn := widget.NewButton(info.Name, func() {
 			m.currentChat = roomID
+			m.chatNameLabel.SetText(info.Name)
+			m.rightEmptyBox.Hide()
+			m.rightPanelContent.Show()
 			m.loadCurrentChat()
 			m.chatScroll.ScrollToBottom()
+			m.messageInput.SetText("")
 		})
 
 		m.leftPanelContent.Add(btn)
 	}
-
-	m.leftPanelContent.Refresh()
+	fyne.Do(func() {
+		m.leftPanelContent.Refresh()
+	})
 }
 
 func (m *MainWindow) loadCurrentChat() {
@@ -385,8 +493,8 @@ func (m *MainWindow) openNewChatDialog() {
 	chatNameEntry := widget.NewEntry()
 	receiverEntry := widget.NewEntry()
 	algorithmSelect := widget.NewSelect([]string{"RC5", "RC6"}, nil)
-	modeSelect := widget.NewSelect([]string{"CFB", "ECB", "RandomDelta"}, nil)
-	paddingSelect := widget.NewSelect([]string{"Zeros", "ANSI"}, nil)
+	modeSelect := widget.NewSelect([]string{"ECB", "CBC", "PCBC", "CFB", "OFB", "CTR", "RandomDelta"}, nil)
+	paddingSelect := widget.NewSelect([]string{"Zeros", "ANSIX923", "PKCS7", "ISO10126"}, nil)
 	errorLabel := widget.NewLabel("")
 	errorLabel.Hide()
 	var dlg *dialog.CustomDialog
@@ -504,10 +612,29 @@ func (m *MainWindow) checkInvitationsPeriodically() {
 			}
 
 			if inv.Sender != "" {
-				// Показываем диалог в основном потоке
 				fyne.DoAndWait(func() {
 					m.showInvitationDialog(inv)
 				})
+			}
+		}
+	}
+}
+
+func (m *MainWindow) checkClearChatRequestsPeriodically() {
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			if m.currentChat != "" {
+				err := m.chatClient.ReceiveClearChatHistoryRequest(m.currentChat)
+				if err != nil {
+					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, domain.ErrNotFound) {
+						continue
+					}
+					continue
+				}
 			}
 		}
 	}
@@ -530,10 +657,20 @@ func (m *MainWindow) checkInvitationResponsesPeriodically() {
 			}
 
 			if resp.Sender != "" {
-				fyne.DoAndWait(func() {
-					m.showInvitationResponseDialog(resp)
-				})
+				switch resp.Accepted {
+				case true:
+					fyne.DoAndWait(func() {
+						m.showSuccessInvitationResponseDialog(resp)
+					})
+				case false:
+					fyne.DoAndWait(func() {
+						m.showRejectedInvitationResponseDialog(resp)
+					})
+				}
 			}
+			fyne.DoAndWait(func() {
+				m.refreshChatList()
+			})
 		}
 	}
 }
@@ -545,7 +682,7 @@ func (m *MainWindow) showInvitationDialog(inv domain.Invitation) {
 		"Отклонить",
 		container.NewVBox(
 			widget.NewLabel(fmt.Sprintf("От: %s", inv.Sender)),
-			widget.NewLabel(fmt.Sprintf("Комната: %s", inv.RoomID)),
+			widget.NewLabel(fmt.Sprintf("Комната: %s", inv.RoomName)),
 		),
 		func(accepted bool) {
 			err := m.chatClient.ReactToInvitation(domain.Invitation{RoomID: inv.RoomID, Receiver: inv.Sender}, accepted)
@@ -557,14 +694,18 @@ func (m *MainWindow) showInvitationDialog(inv domain.Invitation) {
 			if accepted {
 				dialog.ShowInformation(
 					"Приглашение принято",
-					fmt.Sprintf("Вы присоединились к комнате %s", inv.RoomID),
+					fmt.Sprintf("Вы присоединились к комнате %s", inv.RoomName),
 					m.window,
 				)
+				m.refreshChatList()
 				// Можно обновить список чатов или выполнить другие действия
 			} else {
+				if err = os.RemoveAll(filepath.Join("cmd", "client", "users", inv.Receiver, "chats", inv.RoomID)); err != nil {
+					slog.Error("Error", err)
+				}
 				dialog.ShowInformation(
 					"Приглашение отклонено",
-					fmt.Sprintf("Вы отклонили приглашение в комнату %s", inv.RoomID),
+					fmt.Sprintf("Вы отклонили приглашение в комнату %s", inv.RoomName),
 					m.window,
 				)
 			}
@@ -573,26 +714,29 @@ func (m *MainWindow) showInvitationDialog(inv domain.Invitation) {
 	)
 }
 
-func (m *MainWindow) showInvitationResponseDialog(resp domain.Invitation) {
+func (m *MainWindow) showSuccessInvitationResponseDialog(resp domain.Invitation) {
 	content := container.NewVBox(
 		widget.NewLabel(fmt.Sprintf("Ответ от: %s", resp.Sender)),
-		widget.NewLabel(fmt.Sprintf("Комната: %s", resp.RoomID)),
 		widget.NewLabel("Общий ключ успешно сгенерирован!"),
-		widget.NewButton("Показать ключ", func() {
-			dialog.ShowCustom(
-				"Общий ключ",
-				"Закрыть",
-				container.NewVScroll(
-					widget.NewLabel(resp.SharedKey),
-				),
-				m.window,
-			)
-		}),
 	)
 
 	dialog.ShowCustom(
 		"Ответ на приглашение",
 		"OK",
+		content,
+		m.window,
+	)
+}
+
+func (m *MainWindow) showRejectedInvitationResponseDialog(resp domain.Invitation) {
+	content := container.NewVBox(
+		widget.NewLabel(fmt.Sprintf("Ответ от: %s", resp.Sender)),
+		widget.NewLabel("Пользователь не хочет с вами общаться!"),
+	)
+
+	dialog.ShowCustom(
+		"Ответ на приглашение",
+		"Плаки-плаки",
 		content,
 		m.window,
 	)

@@ -329,7 +329,6 @@ func (c *CipherContext) EncryptCTR(data []byte) ([]byte, error) {
 	copy(counter, c.iv)
 
 	for i := 0; i < numberOfBlocks; i++ {
-
 		wg.Add(1)
 
 		go func() {
@@ -337,7 +336,11 @@ func (c *CipherContext) EncryptCTR(data []byte) ([]byte, error) {
 
 			pos := i * c.blockSize
 
-			encryptedCounter, err := c.cipher.Encrypt(counter)
+			localCounter := make([]byte, c.blockSize)
+			copy(localCounter, c.iv)
+			incrementCounterBy(localCounter, i)
+
+			encryptedCounter, err := c.cipher.Encrypt(localCounter)
 			if err != nil {
 				errCh <- fmt.Errorf("encryption failed at block %d, %w", i, err)
 				return
@@ -351,7 +354,7 @@ func (c *CipherContext) EncryptCTR(data []byte) ([]byte, error) {
 
 			xoredBlock := xorBlocks(currBlock, encryptedCounter)
 			copy(encrypted[pos:], xoredBlock)
-			incrementCounter(counter)
+
 		}()
 	}
 
@@ -378,41 +381,41 @@ func (c *CipherContext) EncryptRandomDelta(data []byte) ([]byte, error) {
 	if !exists {
 		return nil, errors.New("randomDelta parameter is missing")
 	}
+	if len(randomDelta) != c.blockSize {
+		return nil, errors.New("randomDelta length must match block size")
+	}
 
+	blockSize := c.blockSize
+	numBlocks := (len(data) + blockSize - 1) / blockSize
 	encrypted := make([]byte, len(data))
-	numberOfBlocks := len(data) / c.blockSize
 
-	wg := &sync.WaitGroup{}
-	errCh := make(chan error, numberOfBlocks)
+	wg := sync.WaitGroup{}
+	errCh := make(chan error, numBlocks)
 
-	counter := make([]byte, c.blockSize)
-
-	copy(counter, c.iv)
-
-	for i := 0; i < numberOfBlocks; i++ {
-
+	for i := 0; i < numBlocks; i++ {
 		wg.Add(1)
 
 		go func() {
 			defer wg.Done()
 
-			pos := i * c.blockSize
-
-			encryptedCounter, err := c.cipher.Encrypt(counter)
-			if err != nil {
-				errCh <- fmt.Errorf("encryption failed at block %d, %w", i, err)
-				return
-			}
-
-			end := i + c.blockSize
+			pos := i * blockSize
+			end := pos + blockSize
 			if end > len(data) {
 				end = len(data)
 			}
-			currBlock := data[pos:end]
+			block := data[pos:end]
 
-			xoredBlock := xorBlocks(currBlock, encryptedCounter)
-			copy(encrypted[pos:], xoredBlock)
-			addBlocks(counter, randomDelta)
+			counterI := computeCounter(c.iv, randomDelta, i)
+
+			encryptedCounter, err := c.cipher.Encrypt(counterI)
+			if err != nil {
+				errCh <- fmt.Errorf("encryption failed at block %d: %w", i, err)
+				return
+			}
+
+			for j := 0; j < end-pos; j++ {
+				encrypted[pos+j] = block[j] ^ encryptedCounter[j]
+			}
 		}()
 	}
 
@@ -438,20 +441,27 @@ func xorBlocks(a, b []byte) []byte {
 	return res
 }
 
-func incrementCounter(counter []byte) {
-	for i := len(counter) - 1; i >= 0; i-- {
-		counter[i]++
-		if counter[i] != 0 {
-			break
-		}
+func computeCounter(iv, delta []byte, multiplier int) []byte {
+	result := make([]byte, len(iv))
+	carry := 0
+
+	for i := len(iv) - 1; i >= 0; i-- {
+		d := int(delta[i]) * multiplier
+		sum := int(iv[i]) + d + carry
+		result[i] = byte(sum & 0xFF)
+		carry = sum >> 8
 	}
+	return result
 }
 
-func addBlocks(a, b []byte) {
-	carry := 0
-	for i := len(a) - 1; i >= 0; i-- {
-		sum := int(a[i]) + int(b[i]) + carry
-		a[i] = byte(sum & 0xFF)
-		carry = sum >> 8
+func incrementCounterBy(counter []byte, value int) {
+	n := len(counter)
+	for i := n - 1; i >= 0 && value > 0; i-- {
+		sum := int(counter[i]) + (value & 0xFF)
+		counter[i] = byte(sum & 0xFF)
+		value >>= 8
+		if sum > 0xFF {
+			value++
+		}
 	}
 }

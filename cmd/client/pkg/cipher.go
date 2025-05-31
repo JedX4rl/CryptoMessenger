@@ -8,7 +8,7 @@ import (
 )
 
 func ParseCipherMode(mode string) (symmetric.CipherMode, error) {
-	switch strings.ToUpper(mode) {
+	switch mode {
 	case "ECB":
 		return symmetric.ECB, nil
 	case "CBC":

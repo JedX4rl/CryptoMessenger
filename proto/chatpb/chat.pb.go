@@ -1078,6 +1078,150 @@ func (x *FileChunk) GetChunkData() []byte {
 	return nil
 }
 
+type ClearHistoryRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserName      string                 `protobuf:"bytes,2,opt,name=user_name,json=userName,proto3" json:"user_name,omitempty"`
+	ChatId        string                 `protobuf:"bytes,3,opt,name=chat_id,json=chatId,proto3" json:"chat_id,omitempty"`
+	MessageId     string                 `protobuf:"bytes,4,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ClearHistoryRequest) Reset() {
+	*x = ClearHistoryRequest{}
+	mi := &file_chat_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ClearHistoryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ClearHistoryRequest) ProtoMessage() {}
+
+func (x *ClearHistoryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_chat_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ClearHistoryRequest.ProtoReflect.Descriptor instead.
+func (*ClearHistoryRequest) Descriptor() ([]byte, []int) {
+	return file_chat_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *ClearHistoryRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *ClearHistoryRequest) GetUserName() string {
+	if x != nil {
+		return x.UserName
+	}
+	return ""
+}
+
+func (x *ClearHistoryRequest) GetChatId() string {
+	if x != nil {
+		return x.ChatId
+	}
+	return ""
+}
+
+func (x *ClearHistoryRequest) GetMessageId() string {
+	if x != nil {
+		return x.MessageId
+	}
+	return ""
+}
+
+type UpdateCipherKeyRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UserId        string                 `protobuf:"bytes,1,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	UserName      string                 `protobuf:"bytes,2,opt,name=user_name,json=userName,proto3" json:"user_name,omitempty"`
+	ChatId        string                 `protobuf:"bytes,3,opt,name=chat_id,json=chatId,proto3" json:"chat_id,omitempty"`
+	PublicKey     string                 `protobuf:"bytes,4,opt,name=public_key,json=publicKey,proto3" json:"public_key,omitempty"` //if "" - delete room
+	MessageId     string                 `protobuf:"bytes,5,opt,name=message_id,json=messageId,proto3" json:"message_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateCipherKeyRequest) Reset() {
+	*x = UpdateCipherKeyRequest{}
+	mi := &file_chat_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateCipherKeyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateCipherKeyRequest) ProtoMessage() {}
+
+func (x *UpdateCipherKeyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_chat_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateCipherKeyRequest.ProtoReflect.Descriptor instead.
+func (*UpdateCipherKeyRequest) Descriptor() ([]byte, []int) {
+	return file_chat_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *UpdateCipherKeyRequest) GetUserId() string {
+	if x != nil {
+		return x.UserId
+	}
+	return ""
+}
+
+func (x *UpdateCipherKeyRequest) GetUserName() string {
+	if x != nil {
+		return x.UserName
+	}
+	return ""
+}
+
+func (x *UpdateCipherKeyRequest) GetChatId() string {
+	if x != nil {
+		return x.ChatId
+	}
+	return ""
+}
+
+func (x *UpdateCipherKeyRequest) GetPublicKey() string {
+	if x != nil {
+		return x.PublicKey
+	}
+	return ""
+}
+
+func (x *UpdateCipherKeyRequest) GetMessageId() string {
+	if x != nil {
+		return x.MessageId
+	}
+	return ""
+}
+
 var File_chat_proto protoreflect.FileDescriptor
 
 const file_chat_proto_rawDesc = "" +
@@ -1171,7 +1315,21 @@ const file_chat_proto_rawDesc = "" +
 	"chunkIndex\x12!\n" +
 	"\ftotal_chunks\x18\x04 \x01(\x05R\vtotalChunks\x12\x1d\n" +
 	"\n" +
-	"chunk_data\x18\x05 \x01(\fR\tchunkData2\xb0\x06\n" +
+	"chunk_data\x18\x05 \x01(\fR\tchunkData\"\x83\x01\n" +
+	"\x13ClearHistoryRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1b\n" +
+	"\tuser_name\x18\x02 \x01(\tR\buserName\x12\x17\n" +
+	"\achat_id\x18\x03 \x01(\tR\x06chatId\x12\x1d\n" +
+	"\n" +
+	"message_id\x18\x04 \x01(\tR\tmessageId\"\xa5\x01\n" +
+	"\x16UpdateCipherKeyRequest\x12\x17\n" +
+	"\auser_id\x18\x01 \x01(\tR\x06userId\x12\x1b\n" +
+	"\tuser_name\x18\x02 \x01(\tR\buserName\x12\x17\n" +
+	"\achat_id\x18\x03 \x01(\tR\x06chatId\x12\x1d\n" +
+	"\n" +
+	"public_key\x18\x04 \x01(\tR\tpublicKey\x12\x1d\n" +
+	"\n" +
+	"message_id\x18\x05 \x01(\tR\tmessageId2\x9b\b\n" +
 	"\vChatService\x129\n" +
 	"\bRegister\x12\x15.chat.RegisterRequest\x1a\x16.chat.RegisterResponse\x120\n" +
 	"\x05Login\x12\x12.chat.LoginRequest\x1a\x13.chat.LoginResponse\x12?\n" +
@@ -1186,7 +1344,10 @@ const file_chat_proto_rawDesc = "" +
 	"InviteUser\x12\x10.chat.Invitation\x1a\x16.google.protobuf.Empty\x12=\n" +
 	"\x11ReceiveInvitation\x12\x16.google.protobuf.Empty\x1a\x10.chat.Invitation\x12E\n" +
 	"\x11ReactToInvitation\x12\x18.chat.InvitationReaction\x1a\x16.google.protobuf.Empty\x12M\n" +
-	"\x19ReceiveInvitationReaction\x12\x16.google.protobuf.Empty\x1a\x18.chat.InvitationReaction\x124\n" +
+	"\x19ReceiveInvitationReaction\x12\x16.google.protobuf.Empty\x1a\x18.chat.InvitationReaction\x12E\n" +
+	"\x10ClearChatHistory\x12\x19.chat.ClearHistoryRequest\x1a\x16.google.protobuf.Empty\x12Q\n" +
+	"\x19ReceiveChatHistoryRequest\x12\x19.chat.ClearHistoryRequest\x1a\x19.chat.ClearHistoryRequest\x12O\n" +
+	"\x17UpdateOrDeleteCipherKey\x12\x1c.chat.UpdateCipherKeyRequest\x1a\x16.google.protobuf.Empty\x124\n" +
 	"\bAckEvent\x12\x10.chat.AckRequest\x1a\x16.google.protobuf.EmptyB\x15Z\x13proto/chatpb;chatpbb\x06proto3"
 
 var (
@@ -1201,7 +1362,7 @@ func file_chat_proto_rawDescGZIP() []byte {
 	return file_chat_proto_rawDescData
 }
 
-var file_chat_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_chat_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_chat_proto_goTypes = []any{
 	(*RegisterRequest)(nil),        // 0: chat.RegisterRequest
 	(*RegisterResponse)(nil),       // 1: chat.RegisterResponse
@@ -1219,11 +1380,13 @@ var file_chat_proto_goTypes = []any{
 	(*ReceiveMessagesRequest)(nil), // 13: chat.ReceiveMessagesRequest
 	(*TextPayload)(nil),            // 14: chat.TextPayload
 	(*FileChunk)(nil),              // 15: chat.FileChunk
-	(*timestamppb.Timestamp)(nil),  // 16: google.protobuf.Timestamp
-	(*emptypb.Empty)(nil),          // 17: google.protobuf.Empty
+	(*ClearHistoryRequest)(nil),    // 16: chat.ClearHistoryRequest
+	(*UpdateCipherKeyRequest)(nil), // 17: chat.UpdateCipherKeyRequest
+	(*timestamppb.Timestamp)(nil),  // 18: google.protobuf.Timestamp
+	(*emptypb.Empty)(nil),          // 19: google.protobuf.Empty
 }
 var file_chat_proto_depIdxs = []int32{
-	16, // 0: chat.ChatMessage.timestamp:type_name -> google.protobuf.Timestamp
+	18, // 0: chat.ChatMessage.timestamp:type_name -> google.protobuf.Timestamp
 	14, // 1: chat.ChatMessage.text:type_name -> chat.TextPayload
 	15, // 2: chat.ChatMessage.chunk:type_name -> chat.FileChunk
 	0,  // 3: chat.ChatService.Register:input_type -> chat.RegisterRequest
@@ -1235,25 +1398,31 @@ var file_chat_proto_depIdxs = []int32{
 	12, // 9: chat.ChatService.SendMessage:input_type -> chat.ChatMessage
 	13, // 10: chat.ChatService.ReceiveMessage:input_type -> chat.ReceiveMessagesRequest
 	9,  // 11: chat.ChatService.InviteUser:input_type -> chat.Invitation
-	17, // 12: chat.ChatService.ReceiveInvitation:input_type -> google.protobuf.Empty
+	19, // 12: chat.ChatService.ReceiveInvitation:input_type -> google.protobuf.Empty
 	10, // 13: chat.ChatService.ReactToInvitation:input_type -> chat.InvitationReaction
-	17, // 14: chat.ChatService.ReceiveInvitationReaction:input_type -> google.protobuf.Empty
-	11, // 15: chat.ChatService.AckEvent:input_type -> chat.AckRequest
-	1,  // 16: chat.ChatService.Register:output_type -> chat.RegisterResponse
-	3,  // 17: chat.ChatService.Login:output_type -> chat.LoginResponse
-	5,  // 18: chat.ChatService.CreateRoom:output_type -> chat.CreateRoomResponse
-	17, // 19: chat.ChatService.CloseRoom:output_type -> google.protobuf.Empty
-	17, // 20: chat.ChatService.JoinRoom:output_type -> google.protobuf.Empty
-	17, // 21: chat.ChatService.LeaveRoom:output_type -> google.protobuf.Empty
-	17, // 22: chat.ChatService.SendMessage:output_type -> google.protobuf.Empty
-	12, // 23: chat.ChatService.ReceiveMessage:output_type -> chat.ChatMessage
-	17, // 24: chat.ChatService.InviteUser:output_type -> google.protobuf.Empty
-	9,  // 25: chat.ChatService.ReceiveInvitation:output_type -> chat.Invitation
-	17, // 26: chat.ChatService.ReactToInvitation:output_type -> google.protobuf.Empty
-	10, // 27: chat.ChatService.ReceiveInvitationReaction:output_type -> chat.InvitationReaction
-	17, // 28: chat.ChatService.AckEvent:output_type -> google.protobuf.Empty
-	16, // [16:29] is the sub-list for method output_type
-	3,  // [3:16] is the sub-list for method input_type
+	19, // 14: chat.ChatService.ReceiveInvitationReaction:input_type -> google.protobuf.Empty
+	16, // 15: chat.ChatService.ClearChatHistory:input_type -> chat.ClearHistoryRequest
+	16, // 16: chat.ChatService.ReceiveChatHistoryRequest:input_type -> chat.ClearHistoryRequest
+	17, // 17: chat.ChatService.UpdateOrDeleteCipherKey:input_type -> chat.UpdateCipherKeyRequest
+	11, // 18: chat.ChatService.AckEvent:input_type -> chat.AckRequest
+	1,  // 19: chat.ChatService.Register:output_type -> chat.RegisterResponse
+	3,  // 20: chat.ChatService.Login:output_type -> chat.LoginResponse
+	5,  // 21: chat.ChatService.CreateRoom:output_type -> chat.CreateRoomResponse
+	19, // 22: chat.ChatService.CloseRoom:output_type -> google.protobuf.Empty
+	19, // 23: chat.ChatService.JoinRoom:output_type -> google.protobuf.Empty
+	19, // 24: chat.ChatService.LeaveRoom:output_type -> google.protobuf.Empty
+	19, // 25: chat.ChatService.SendMessage:output_type -> google.protobuf.Empty
+	12, // 26: chat.ChatService.ReceiveMessage:output_type -> chat.ChatMessage
+	19, // 27: chat.ChatService.InviteUser:output_type -> google.protobuf.Empty
+	9,  // 28: chat.ChatService.ReceiveInvitation:output_type -> chat.Invitation
+	19, // 29: chat.ChatService.ReactToInvitation:output_type -> google.protobuf.Empty
+	10, // 30: chat.ChatService.ReceiveInvitationReaction:output_type -> chat.InvitationReaction
+	19, // 31: chat.ChatService.ClearChatHistory:output_type -> google.protobuf.Empty
+	16, // 32: chat.ChatService.ReceiveChatHistoryRequest:output_type -> chat.ClearHistoryRequest
+	19, // 33: chat.ChatService.UpdateOrDeleteCipherKey:output_type -> google.protobuf.Empty
+	19, // 34: chat.ChatService.AckEvent:output_type -> google.protobuf.Empty
+	19, // [19:35] is the sub-list for method output_type
+	3,  // [3:19] is the sub-list for method input_type
 	3,  // [3:3] is the sub-list for extension type_name
 	3,  // [3:3] is the sub-list for extension extendee
 	0,  // [0:3] is the sub-list for field type_name
@@ -1274,7 +1443,7 @@ func file_chat_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_chat_proto_rawDesc), len(file_chat_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   16,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

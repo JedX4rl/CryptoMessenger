@@ -104,6 +104,7 @@ func (h *ChatHandler) InviteUser(ctx context.Context, req *pb.Invitation) (*empt
 	invitation := domain.ChatInvitation{
 		SenderID:     senderID,
 		ReceiverName: req.ReceiverName,
+		RandomDelta:  req.RandomDelta,
 		RoomID:       req.RoomId,
 		RoomName:     req.RoomName,
 		Prime:        req.Prime,
@@ -264,6 +265,46 @@ func (h *ChatHandler) SendMessage(ctx context.Context, req *pb.ChatMessage) (*em
 	}
 
 	if err := h.services.Chat.SendMessage(ctx, chatMessage); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &emptypb.Empty{}, nil
+}
+
+func (h *ChatHandler) ClearChatHistory(ctx context.Context, req *pb.ClearHistoryRequest) (*emptypb.Empty, error) {
+	request := domain.ChatActions{
+		ID:        req.ChatId,
+		UserName:  req.UserName,
+		MessageID: req.MessageId,
+	}
+	if err := h.services.Chat.ClearChatHistory(ctx, request); err != nil {
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	return &emptypb.Empty{}, nil
+}
+
+func (h *ChatHandler) ReceiveChatHistoryRequest(ctx context.Context, req *pb.ClearHistoryRequest) (*pb.ClearHistoryRequest, error) {
+	request, err := h.services.Chat.ReceiveClearChatHistoryRequest(ctx, req.UserId)
+	if err != nil {
+		if errors.Is(err, nats.ErrMsgNotFound) {
+			return nil, status.Error(codes.NotFound, err.Error())
+		}
+		return nil, status.Error(codes.Internal, err.Error())
+	}
+	slog.Info("without errors", request)
+	return &pb.ClearHistoryRequest{
+		UserId:    request.UserID,
+		ChatId:    request.ID,
+		MessageId: request.MessageID,
+	}, nil
+}
+
+func (h *ChatHandler) UpdateOrDeleteCipherKey(ctx context.Context, req *pb.UpdateCipherKeyRequest) (*emptypb.Empty, error) {
+	action := domain.ChatActions{
+		ID:        req.ChatId,
+		UserID:    req.UserId,
+		PublicKey: req.PublicKey,
+	}
+	if err := h.services.Chat.UpdateOrDeleteCipherKey(ctx, action); err != nil {
 		return nil, status.Error(codes.Internal, err.Error())
 	}
 	return &emptypb.Empty{}, nil

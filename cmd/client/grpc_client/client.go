@@ -1,5 +1,6 @@
 package grpc_client
 
+import "C"
 import (
 	dh "CryptoMessenger/algorithm/diffie_hellman"
 	"CryptoMessenger/algorithm/rc5"
@@ -148,12 +149,17 @@ func (c *ChatClient) CreateChat(info domain.Chat) error {
 	}
 
 	iv := make([]byte, 16)
-	_, err = rand.Read(iv)
-	if err != nil {
+	if _, err = rand.Read(iv); err != nil {
 		return fmt.Errorf("could not generate IV: %w", err)
 	}
 
+	randomDelta := make([]byte, 16)
+	if _, err = rand.Read(randomDelta); err != nil {
+		return fmt.Errorf("failed to generate random delta: %w", err)
+	}
+
 	info.IV = hex.EncodeToString(iv)
+	info.RandomDelta = hex.EncodeToString(randomDelta)
 
 	roomID, err := c.createAndInvite(ctx, info, dhParams)
 	if err != nil {
@@ -262,8 +268,6 @@ func (c *ChatClient) ReceiveInvitation() (domain.Invitation, error) {
 
 	}
 
-	slog.Info("Received invitation", invitation)
-
 	roomInfo := domain.RoomInfo{
 		ID:             invitation.RoomId,
 		Name:           invitation.RoomName,
@@ -290,8 +294,9 @@ func (c *ChatClient) ReceiveInvitation() (domain.Invitation, error) {
 	}
 
 	return domain.Invitation{
-		Sender: invitation.SenderName,
-		RoomID: invitation.RoomId,
+		Sender:   invitation.SenderName,
+		RoomID:   invitation.RoomId,
+		RoomName: invitation.RoomName,
 	}, nil
 }
 
@@ -353,8 +358,6 @@ func (c *ChatClient) ReceiveInvitationResponse() (domain.Invitation, error) {
 		return domain.Invitation{}, err
 	}
 
-	slog.Info("Got reaction: %v", reaction)
-
 	_, err = c.client.AckEvent(ctx, &pb.AckRequest{MessageId: reaction.MessageId})
 	if err != nil {
 		log.Printf("could not ack invitation: %v", err)
@@ -362,6 +365,17 @@ func (c *ChatClient) ReceiveInvitationResponse() (domain.Invitation, error) {
 	}
 
 	slog.Info("Acked message: %v", reaction.MessageId)
+
+	if !reaction.Accepted {
+		if err = os.RemoveAll(filepath.Join("cmd", "client", "users", c.UserID, "chats", reaction.RoomId)); err != nil {
+			slog.Error("Error", err)
+			return domain.Invitation{}, errors.New("something went wrong")
+		}
+		return domain.Invitation{
+			Sender:   reaction.SenderName,
+			Accepted: false,
+		}, nil
+	}
 
 	dhParams, err := c.loadDHParamsFromDisk(reaction.RoomId, true)
 	if err != nil {
@@ -384,7 +398,10 @@ func (c *ChatClient) ReceiveInvitationResponse() (domain.Invitation, error) {
 		return domain.Invitation{}, fmt.Errorf("could not update room info on disk: %w", err)
 	}
 
-	return domain.Invitation{}, nil
+	return domain.Invitation{
+		Sender:   reaction.SenderName,
+		Accepted: true,
+	}, nil
 }
 
 func (c *ChatClient) generateDHParams(bits int) (*domain.DiffieHellmanParams, error) {
@@ -419,6 +436,10 @@ func (c *ChatClient) SendMessage(cancelContext context.Context, roomID, text, fi
 	info, err := c.loadRoomInfoFromDisk(roomID)
 	if err != nil {
 		return fmt.Errorf("could not load room info from disk: %w", err)
+	}
+
+	if info.CipherKey == "" {
+		return fmt.Errorf("comrad haven't accepted invitation yet")
 	}
 
 	var cipherContext *symmetric.CipherContext
@@ -494,6 +515,11 @@ func (c *ChatClient) SendMessage(cancelContext context.Context, roomID, text, fi
 			return fmt.Errorf("stat encrypted file: %w", err)
 		}
 		fileSize := infoStat.Size()
+
+		if fileSize == 0 {
+			return domain.EmptyFileError
+		}
+
 		const chunkSize = 1024 * 256 // 256KB
 		totalChunks := int((fileSize + chunkSize - 1) / chunkSize)
 
@@ -547,6 +573,9 @@ func (c *ChatClient) SendMessage(cancelContext context.Context, roomID, text, fi
 
 		c.Messages.Store(info.ID, struct{}{})
 
+		if err = os.Remove(encryptedPath); err != nil {
+			return fmt.Errorf("remove encrypted file: %w", err)
+		}
 	}
 
 	return nil
@@ -679,6 +708,78 @@ func (c *ChatClient) ReceiveMessage(roomID string, progressFunc func(done, total
 	return nil
 }
 
+func (c *ChatClient) ClearMyChatHistory(chatID string) error {
+	chatPath := fmt.Sprintf("cmd/client/users/%s/chats/%s/chat.jsonl",
+		c.UserID, chatID)
+	filesPath := fmt.Sprintf("cmd/client/users/%s/chats/%s/files",
+		c.UserID, chatID)
+
+	if err := os.WriteFile(chatPath, []byte{}, 0644); err != nil {
+		return fmt.Errorf("ошибка очистки чата")
+	}
+	if err := os.RemoveAll(filesPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("ошибка удаления папки с файлами")
+	}
+	return nil
+}
+
+func (c *ChatClient) ClearChatHistory(chatID string) error {
+	ctx, cancel := context.WithTimeout(c.AuthenticatedContext(), 10*time.Second)
+	defer cancel()
+
+	info, err := c.loadRoomInfoFromDisk(chatID)
+	if err != nil {
+		return errors.New("something went wrong")
+	}
+
+	slog.Error("sending clear chat", chatID)
+
+	if _, err = c.client.ClearChatHistory(ctx, &pb.ClearHistoryRequest{ChatId: chatID, UserName: info.Companion, MessageId: uuid.New().String()}); err != nil {
+		return fmt.Errorf("can't clear history")
+	}
+
+	slog.Info("sent clear chat", chatID)
+
+	if err = c.ClearMyChatHistory(chatID); err != nil {
+		return fmt.Errorf("can't clear history")
+	}
+
+	slog.Error("my chat cleared")
+
+	return nil
+}
+
+func (c *ChatClient) ReceiveClearChatHistoryRequest(chatID string) error {
+	ctx, cancel := context.WithTimeout(c.AuthenticatedContext(), 10*time.Second)
+	defer cancel()
+
+	req, err := c.client.ReceiveChatHistoryRequest(ctx, &pb.ClearHistoryRequest{ChatId: chatID, UserId: c.UserID})
+	if err != nil {
+		st, ok := status.FromError(err)
+		if ok && st.Code() == codes.NotFound {
+			return domain.ErrNotFound
+		}
+		if errors.Is(err, ctx.Err()) {
+			return nil
+		}
+		slog.Error("err", err)
+		return fmt.Errorf("can't receive clear history request")
+	}
+	err = c.ClearMyChatHistory(req.ChatId)
+	if err != nil {
+		return fmt.Errorf("can't clear history")
+	}
+
+	_, err = c.client.AckEvent(ctx, &pb.AckRequest{MessageId: req.MessageId})
+	if err != nil {
+		return err
+	}
+
+	c.Messages.Store(chatID, struct{}{})
+
+	return nil
+}
+
 func (c *ChatClient) appendToChatFile(chatID string, msg domain.StoredMessage) error {
 	path := fmt.Sprintf("cmd/client/users/%s/chats/%s/chat.jsonl",
 		c.UserID, chatID)
@@ -800,16 +901,20 @@ func (c *ChatClient) newRoomCipher(info domain.RoomInfo) (*symmetric.CipherConte
 		return nil, fmt.Errorf("invalid hex cipher key: %w", err)
 	}
 
-	key := make([]byte, 64)
-	copy(key, tmp)
-
 	iv, err := hex.DecodeString(info.IV)
 	if err != nil {
 		return nil, fmt.Errorf("invalid IV hex: %w", err)
 	}
 
-	var cipher symmetric.CipherScheme
-	var blockSize int
+	key := make([]byte, 32)
+	copy(key, tmp)
+
+	var (
+		cipher    symmetric.CipherScheme
+		blockSize = 16
+		extra     []interface{}
+	)
+
 	switch strings.ToUpper(info.Algorithm) {
 	case "RC5":
 		cipher, err = rc5.NewRC5(64, 12, uint(len(key)), key)
@@ -839,6 +944,14 @@ func (c *ChatClient) newRoomCipher(info domain.RoomInfo) (*symmetric.CipherConte
 		return nil, err
 	}
 
+	if mode == symmetric.RandomDelta {
+		randomDelta, err := hex.DecodeString(info.RandomDelta)
+		if err != nil {
+			return nil, fmt.Errorf("invalid RandomDelta hex: %w", err)
+		}
+		extra = []interface{}{"randomDelta", randomDelta}
+	}
+
 	ctx, err := symmetric.NewCipherContext(
 		key,
 		cipher,
@@ -846,9 +959,10 @@ func (c *ChatClient) newRoomCipher(info domain.RoomInfo) (*symmetric.CipherConte
 		padding,
 		iv,
 		blockSize,
+		extra...,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("could not create symmetric context: %w", err)
 	}
 	return ctx, nil
 }

@@ -61,7 +61,7 @@ func (a *AuthWindow) Show() {
 
 	// 4) поля формы
 	entryName := widget.NewEntry()
-	entryName.SetPlaceHolder("Enter your username or UserID")
+	entryName.SetPlaceHolder("Enter your username")
 	entryPassword := widget.NewPasswordEntry()
 	entryPassword.SetPlaceHolder("Enter your password")
 	validate := func() error {

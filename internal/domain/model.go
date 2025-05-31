@@ -101,3 +101,11 @@ type FileChunk struct {
 	TotalChunks int    `json:"total_chunks"`
 	ChunkData   []byte `json:"chunk_data"`
 }
+
+type ChatActions struct {
+	ID        string `json:"chat_id"`
+	UserName  string `json:"user_name"`
+	UserID    string `json:"user_id"`
+	PublicKey string `json:"public_key"`
+	MessageID string `json:"message_id"`
+}
